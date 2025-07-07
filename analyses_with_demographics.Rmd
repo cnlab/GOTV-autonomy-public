@@ -1,0 +1,553 @@
+---
+title: "Autonomous motivation and functioning related to civic engagement and voting"
+date: "`r Sys.Date()`"
+author: Kirsten Lydic, Emily Falk, Dani Cosme 
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+  pdf_document: 
+    toc: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style type="text/css">
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+      font-family: Times;
+  }
+td {  /* Table  */
+  font-size: 11px;
+  font-family: Times;
+}
+h1.title {
+  font-size: 40px;
+  color: DarkBlue;
+  font-weight: bold;
+
+}
+h1 { /* Header 1 */
+  font-size: 36px;
+  color: DarkBlue;
+  font-weight: bold;
+
+}
+h2 { /* Header 2 */
+  font-size: 28px;
+  color: DarkBlue;
+  font-weight: bold;
+
+}
+h3 { /* Header 3 */
+  font-size: 22px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  font-weight: bold;
+}
+
+h4 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  font-weight: bold;
+}
+
+h5 { /* Header 3 */
+  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  font-weight: bold;
+}
+
+code{ /* Code block */
+    font-size: 9px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = FALSE, dpi = 150, fig.path = "figs/") 
+
+options(scipen=999)
+set.seed(43) #set seed for random number generation
+```
+
+# Prep data {.tabset}
+## Load packages
+```{r packages, echo=FALSE}
+# import packages
+
+if (!require(pacman)) {
+  install.packages('pacman')
+}
+pacman::p_load(ggplot2, tidyverse, ggnetwork, network, sjPlot, lme4, lmerTest, tm, SnowballC, wordcloud, usmap, knitr, kableExtra, RColorBrewer, corrplot, Hmisc, tidyr, gtsummary, see, stringr, reactable, performance, wesanderson, janitor, ltm, cooccur, visNetwork, reshape2, plotly, dplyr, patchwork,marginaleffects, cowplot, stringr, tm, tidytext, gridExtra, patchwork, install = TRUE)
+
+```
+
+## Define aesthetics
+```{r aesthetics}
+# set aesthetics 
+palette = c("#e64626", "#1985a1", "#ffb800", "aquamarine2")
+plot_aes = theme_minimal() +
+  theme(legend.position = "top",
+        text = element_text(size = 12, family = "Futura Medium"),
+        axis.text = element_text(color = "black"),
+        axis.line = element_line(colour = "black"),
+        axis.ticks.y = element_blank())
+
+```
+
+## Define functions 
+```{r functions}
+
+read_files = function(file) {
+  read.csv(file, stringsAsFactors = FALSE, colClasses = "character")
+}
+
+widen <- function(df) {
+  wide_df <- df %>% select(-scale_name) %>%
+  pivot_wider(names_from = item, values_from = value)
+  return(wide_df)
+}
+
+
+```
+
+## Load data 
+
+```{r}
+data_scored = read.csv("data_merged.csv") #scored data in wide format + individual vote motivation items + political ideology
+data_unscored = read.csv("data_unscored.csv") #unscored items from the initial survey
+demos = read.csv("../demographics.csv") #demographics in long format
+
+voter_validation_data <- read_csv('~/Library/CloudStorage/Box-Box/research:academic/CNL/GOTV_studies/GOTV_L2/GOTV_autonomy/data/GOTV_validated_voters.csv')
+
+```
+
+
+### Tidy (scale and winsorize)
+
+```{r scaling}
+
+# scale vars
+data_scored_original <- data_scored %>%
+  mutate(no_intentions = ifelse(vote_intention_vote == 0, 1, 0))
+
+vars_to_scale <- c("vote_intention_vote", "vote_intention_register",
+                   "IAF_autonomous", "IAF_controlled",
+                   "CE_checklist", "CE_attitudes",
+                   "vote_motive_autonomous", "vote_motive_controlled",
+                   "autonomous_identified",  "autonomous_integrated", "autonomous_intrinsic",
+                   "controlled_external", "controlled_introjected")
+
+# winzorise vars
+winsorize <- function(x) {
+  mean_x <- mean(as.numeric(x), na.rm = TRUE)
+  sd_x <- sd(as.numeric(x), na.rm = TRUE)
+  lower_limit <- mean_x - 3 * sd_x
+  upper_limit <- mean_x + 3 * sd_x
+  x[as.numeric(x) < lower_limit] <- lower_limit
+  x[as.numeric(x) > upper_limit] <- upper_limit
+  return(as.numeric(x))
+}
+
+
+scale_na <- function(x) {
+  scaled_x <- scale(as.numeric(x), center = TRUE, scale = TRUE)
+  return(ifelse(is.na(x), NA, scaled_x))
+}
+
+# renamed to data_scaled to avoid overwriting
+data_scaled <- data_scored %>%
+  mutate_at(vars_to_scale, winsorize) %>%
+  mutate_at(vars_to_scale, scale_na)
+
+
+```
+
+
+# Voter validation
+```{r}
+
+colnames(voter_validation_data) <- c('study', 'RecordedDate', 'voted2020', 'voted2022', 'id')
+
+test_voters_sona2022_1 <- read_csv('~/Library/CloudStorage/Box-Box/CurrentProjects_Penn/BB-PRIME_database/data/prepped/demo_gotv_2022_within.csv') 
+test_voters_sona2022_1 <- test_voters_sona2022_1[c('pID', 'SONA_ID')] %>% subset(!is.na(SONA_ID))
+test_voters_sona2022_1$study_new <- '2022_student1'
+test_voters_sona2022_1$study <- 'SONA 2022 within'
+
+test_voters_sona2022_2 <- read_csv('~/Library/CloudStorage/Box-Box/CurrentProjects_Penn/BB-PRIME_database/data/prepped/demo_gotv_2022_between.csv') 
+test_voters_sona2022_2 <- test_voters_sona2022_2[c('pID', 'SONA_ID')] %>% subset(!is.na(SONA_ID))
+test_voters_sona2022_2$study_new <- '2022_student2'
+test_voters_sona2022_2$study <- 'SONA 2022 between'
+
+
+test_voters_sona2020 <- read_csv('~/Library/CloudStorage/Box-Box/CurrentProjects_Penn/BB-PRIME_database/data/no-message_studies/prepped/demo_gotv_2020_sona.csv') 
+test_voters_sona2020 <- test_voters_sona2020[c('pID', 'SONA_ID')] %>% subset(!is.na(SONA_ID))
+test_voters_sona2020$study_new <- '2020_student'
+test_voters_sona2020$study <- 'SONA 2020'
+
+
+all_voter_records <- rbind(test_voters_sona2020, test_voters_sona2022_1, test_voters_sona2022_2)
+
+
+all_voter_records_merged <- merge(all_voter_records, voter_validation_data, by.x = c('SONA_ID', 'study'), by.y = c('id', 'study'), all = TRUE)
+
+data_scored <- merge(data_scored, all_voter_records_merged, by.x = c('SID', 'study'), by.y = c('pID', 'study_new'), all = TRUE)
+
+
+sona_data_scored <- filter(data_scored, grepl("2020_student|2022_student", study))
+sona_data_scored <- subset(sona_data_scored, voted2020 == 1 | voted2020 == 0)
+sona_data_scored <- subset(sona_data_scored, behavior_voting == 1 | behavior_voting == 0)
+sona_data_scored <- unique(sona_data_scored)
+data_scored <- unique(data_scored)
+
+sona_data_scored %>% group_by(study) %>% summarise(count = n())
+nrow(sona_data_scored)
+
+
+sona_data_scored_2022 <- filter(sona_data_scored, grepl("2022_student", study))
+sona_data_scored_2020 <- filter(sona_data_scored, grepl("2020_student", study))
+
+sona_data_scored_2022$reported_voting_matched <- as.numeric(sona_data_scored_2022$voted2022 == sona_data_scored_2022$behavior_voting)
+
+sona_data_scored_2020$reported_voting_matched <- as.numeric(sona_data_scored_2020$voted2020 == sona_data_scored_2020$behavior_voting)
+
+final_voting_check_df <- rbind(sona_data_scored_2020, sona_data_scored_2022)
+nrow(final_voting_check_df)
+final_voting_check_df %>% group_by(behavior_voting, reported_voting_matched) %>% summarise(count = n())
+
+
+
+# 2020: 71/75 matched (94.67%)
+# 2022: 50/65 matched (76.92%) 
+# 86.43% match across both 
+
+
+```
+
+
+# Demographics {.tabset}
+
+## Demographics table (prep, group, recode as appropriate) {.tabset}
+```{r demotable}
+
+# https://epirhandbook.com/en/descriptive-tables.html#tbl_gt 
+
+demos_wide <- demos %>% 
+  mutate(value = ifelse(grepl("gender", item), 
+                        dplyr::recode(value, 
+                             "genderfluid" = "Genderqueer / Genderfluid", 
+                             "Genderqueer" = "Genderqueer / Genderfluid",
+                             "Genderfluid" = "Genderqueer / Genderfluid",
+                             "Gender fluid" = "Genderqueer / Genderfluid",
+                             "Non-binary" = "Non-binary / third gender",
+                             "perverted incontinent plasma fluid transient gender" = "Prefer to self-describe",
+                             "they" = "Prefer to self-describe"), value),
+         value = ifelse(grepl("hispanic_latinx", item), 
+                        dplyr::recode(value, "2" = "NA", 
+                                      "Prefer not to say" = "NA"), value),
+         value = ifelse(grepl("race_ethnicity", item), 
+                        dplyr::recode(value, 
+                             "Salvadoran" = "Other / self-described", 
+                             "Asian" = "Asian (East Asian, South Asian, and/or Southeast Asian)", 
+                             "South Asian" = "Asian (East Asian, South Asian, and/or Southeast Asian)", 
+                             "East Asian" = "Asian (East Asian, South Asian, and/or Southeast Asian)", 
+                             "Southeast Asian" = "Asian (East Asian, South Asian, and/or Southeast Asian)", 
+                             "My racial/ethnic identity is not listed here" = "More than one race or race not listed", 
+                             "More than one race" = "More than one race or race not listed"), value)) %>%
+  spread(item, value) %>%
+  mutate_at(c("age", "ses_subj"), as.numeric) %>%
+  left_join(., select(data_scored, SID, politics_party)) %>%
+  mutate(politics_party_qual = dplyr::recode(politics_party, 
+                             "1" = "Strong democrat", 
+                             "2" = "Weak democrat",
+                             "3" = "Independent leaning democrat", 
+                             "4" = "Independent",
+                             "5" = "Independent leaning republican",
+                             "6" = "Weak republican",
+                             "7" = "Strong republican", 
+                             "9" = "Something else", 
+                             "8" = "Don't know"),
+         politics_party_qual = factor(politics_party_qual,
+                                      levels = c("Strong democrat", "Weak democrat",
+                                                 "Independent leaning democrat",
+                                                 "Independent","Independent leaning republican",
+                                                 "Weak republican",
+                                                 "Strong republican", 
+                                                 "Don't know", "Something else")))
+
+
+data_scaled_demos <- merge(data_scaled, demos_wide, by = c("study", "SID"), all.x = TRUE, all.y = FALSE)
+
+```
+
+### Across samples (Table 1)
+```{r}
+
+variables_to_include <- c("gender", "age", "race_ethnicity", "hispanic_latinx", "ses_subj", "politics_party.y")
+
+data_scaled_demos$politics_party.y <- as.numeric(data_scaled_demos$politics_party.y)
+
+(table1 <- data_scaled_demos %>% select(variables_to_include) %>%  
+    tbl_summary(
+      missing = "no", 
+      type = list(
+                  politics_party.y ~ "continuous"), 
+      statistic = list(all_continuous() ~ "{mean} ({sd})"), 
+      label = list(
+        gender ~ "Gender",
+        age ~ "Age", 
+        race_ethnicity ~ "Race", 
+        hispanic_latinx ~ "Hispanic/Latinx", 
+        ses_subj ~ "Subjective social status (10-pt scale)",
+        politics_party.y ~ "Politicy party identification")) %>% 
+  modify_header(label = '**Variable**'))
+
+```
+
+
+### Per sample (Table S1)
+```{r}
+variables_to_include <- c("gender", "age", "race_ethnicity", "hispanic_latinx", "ses_subj", "politics_party.y", "study")
+
+(table2 <- data_scaled_demos %>% select(variables_to_include) %>%  
+    tbl_summary(
+      by = 'study',
+      missing = "no", 
+      type = list(
+                  politics_party.y ~ "continuous"), 
+      statistic = list(all_continuous() ~ "{mean} ({sd})"), 
+      label = list(
+        gender ~ "Gender",
+        age ~ "Age", 
+        race_ethnicity ~ "Race", 
+        hispanic_latinx ~ "Hispanic/Latinx", 
+        ses_subj ~ "Subjective social status (10-pt scale)",
+        politics_party.y ~ "Politicy party identification")) %>% 
+  modify_header(label = '**Variable**'))
+
+```
+
+# Remove nonspecific/self-coded categories for models 
+```{r}
+
+gender_list <- c("Man", "Woman", "Non-binary / third gender", "Genderqueer / Genderfluid")
+  
+race_list <- c("White", "Black or African American", "Asian (East Asian, South Asian, and/or Southeast Asian)", "American Indian or Alaskan Native", "Native Hawaiian or Other Pacific Islander", "Middle Eastern or North African", "More than one race or race not listed")
+
+hisp_list <- c("No", "Yes")
+
+data_scaled_demos_clean <- data_scaled_demos %>% filter(gender %in% gender_list)
+data_scaled_demos_clean <- data_scaled_demos_clean %>% filter(race_ethnicity %in% race_list)
+data_scaled_demos_clean <- data_scaled_demos_clean %>% filter(hispanic_latinx %in% hisp_list)
+
+data_scaled_demos_clean$gender <- factor(data_scaled_demos_clean$gender, levels = gender_list) 
+data_scaled_demos_clean$race_ethnicity <- factor(data_scaled_demos_clean$race_ethnicity, levels = race_list) 
+data_scaled_demos_clean$hispanic_latinx <- factor(data_scaled_demos_clean$hispanic_latinx, levels = hisp_list) 
+
+```
+
+# Autonomous and controlled motivation to vote (-> Table S3) {.tabset}
+
+## H1: Intentions to vote  
+
+```{r}
+
+h1_ext = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous + vote_motive_controlled +  as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study), data = data_scaled_demos_clean)
+
+as.table(car::vif(h1_ext, type = 'predictor'))
+
+```
+
+## H2: Voting behavior 
+
+```{r}
+
+h2_ext = glmer(behavior_voting ~ vote_motive_autonomous + vote_motive_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study),
+        data = filter(data_scaled_demos_clean, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+as.table(car::vif(h2_ext, type = 'predictor'))
+
+```
+
+
+## H3: Sense of civic duty 
+
+```{r}
+
+data_scaled_demos_clean$civic_duty <- data_scaled_demos_clean$CE_attitudes
+
+h3_ext <- lmer(civic_duty ~ vote_motive_autonomous + vote_motive_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) +  + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study), data = data_scaled_demos_clean)
+
+as.table(car::vif(h3_ext, type = 'predictor'))
+
+```
+
+
+## H4: Civic behavior  
+
+```{r}
+h4_ext = lmer(CE_checklist ~ vote_motive_autonomous + vote_motive_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) +  + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2022_general2", study)))
+
+as.table(car::vif(h4_ext, type = 'predictor'))
+```
+
+### Excluding 2020 general sample
+
+```{r}
+h4_ext_wo2020gen = lmer(CE_checklist ~ vote_motive_autonomous + vote_motive_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) +  + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2022_general2|2020_general", study)))
+
+as.table(car::vif(h4_ext_wo2020gen, type = 'predictor'))
+
+```
+
+# Autonomous and controlled functioning (-> Table S4) {.tabset}
+
+## H5: Intentions to vote
+
+```{r}
+# CE_politics_know not included, zero non-missing cases 
+
+h5_ext <- lmer(vote_intention_vote ~ IAF_autonomous + IAF_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) +  + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2021_student", study)))
+
+as.table(car::vif(h5_ext, type = 'predictor'))
+
+
+```
+
+
+## H6: Voting behavior 
+
+```{r}
+
+h6_ext = glmer(behavior_voting ~ IAF_autonomous + IAF_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study),
+        data = filter(data_scaled_demos_clean, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+as.table(car::vif(h6_ext, type = 'predictor'))
+
+```
+
+
+## H7: Sense of civic duty 
+```{r}
+
+h7_ext = lmer(civic_duty ~ IAF_autonomous + IAF_controlled  + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) +  + as.factor(hispanic_latinx) + as.numeric(ses_subj)+ (1 | study), data = filter(data_scaled_demos_clean, !grepl("2021_student", study)))
+
+as.table(car::vif(h7_ext, type = 'predictor'))
+
+```
+
+## H8: Civic behavior 
+
+```{r}
+
+h8_ext = lmer(CE_checklist ~ IAF_autonomous + IAF_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) +  + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2021_student|2022_general2", study)))
+
+as.table(car::vif(h8_ext, type = 'predictor'))
+
+```
+
+### Excluding 2020 general sample 
+```{r}
+h8_ext_wo2020gen = lmer(CE_checklist ~ IAF_autonomous + IAF_controlled + as.numeric(politics_party.y) + as.factor(gender) + as.numeric(age) + as.factor(race_ethnicity) +  + as.factor(hispanic_latinx) + as.numeric(ses_subj) + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2021_student|2022_general2|2020_general", study)))
+
+as.table(car::vif(h8_ext_wo2020gen, type = 'predictor'))
+
+```
+
+
+# Combined plots/tables 
+
+## Table S3 
+```{r}
+
+tab_model(h1_ext, h3_ext, h4_ext, h4_ext_wo2020gen, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, df.method = "satterthwaite", show.ngroups = FALSE, dv.labels = c('H1: VM and voting intentions', 'H3: VM and sense of civic duty', 'H4: VM and civic behavior', 'H4: VM and civic behavior (excl. 2020gen)'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(h2_ext, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H2: VM and voting behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+```
+
+## Table S4
+```{r}
+
+tab_model(h5_ext, h7_ext, h8_ext, h8_ext_wo2020gen, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, df.method = "satterthwaite", show.ngroups = FALSE, dv.labels = c('H5: IAF and voting intentions', 'H7: IAF and sense of civic duty', 'H8: IAF and civic behavior', 'H8: IAF and civic behavior (excl. 2020 gen)'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(h6_ext, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H6: IAF and voting behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+```
+
+
+# Additional code, plots/tables, analyses
+
+## Age effects 
+
+(plot age)
+```{r}
+
+ggplot(data = demos_wide, 
+       aes(x = age)) +
+  geom_density() + 
+  facet_grid(. ~ study, scales = "free") + 
+  labs(x = "Age", y = "density\n") +
+  ggtitle("Age distribution by study") + 
+  theme_minimal() 
+
+```
+
+```{r plotagefx}
+
+data_scored_ivs <- data_scaled_demos[c('study', 'SID', 'age', 'vote_motive_autonomous', 'vote_motive_controlled', 'IAF_controlled', 'IAF_autonomous')]
+
+data_scored_ivs_long <-  pivot_longer(data_scored_ivs, !c(study, SID, age), names_to = "scale", values_to = "value")
+data_scored_ivs_long$age <- as.numeric(data_scored_ivs_long$age)
+
+ggplot(aes(x = age, y = value, color = scale, fill = scale), data = data_scored_ivs_long) +
+  geom_smooth(method = "lm", na.rm = TRUE) + 
+  #geom_jitter(alpha = 0.1, na.rm = TRUE) + 
+  theme_minimal() + 
+  labs(x = "Age", y = "Level Reported", title = "Expression of state and trait autonomy/control across age") + 
+  scale_colour_manual(name = 'Measure', 
+        values =c('#d34224','#ffb5a6','#0f758f','#c0ebf7'), labels = c('vote_motive_controlled','IAF_controlled', 'vote_motive_autonomous', 'IAF_autonomous')) + 
+  scale_fill_manual(name = 'Measure', 
+        values =c('#d34224','#ffb5a6','#0f758f','#c0ebf7'), labels = c('vote_motive_controlled','IAF_controlled', 'vote_motive_autonomous', 'IAF_autonomous'))
+
+```

@@ -1,0 +1,3335 @@
+---
+title: "Autonomous motivation and functioning related to civic engagement and voting"
+date: "`r Sys.Date()`"
+author: Kirsten Lydic, Emily Falk, Dani Cosme 
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+  pdf_document: 
+    toc: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style type="text/css">
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+      font-family: Times;
+  }
+td {  /* Table  */
+  font-size: 11px;
+  font-family: Times;
+}
+h1.title {
+  font-size: 40px;
+  color: DarkBlue;
+  font-weight: bold;
+
+}
+h1 { /* Header 1 */
+  font-size: 36px;
+  color: DarkBlue;
+  font-weight: bold;
+
+}
+h2 { /* Header 2 */
+  font-size: 28px;
+  color: DarkBlue;
+  font-weight: bold;
+
+}
+h3 { /* Header 3 */
+  font-size: 22px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  font-weight: bold;
+}
+
+h4 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  font-weight: bold;
+}
+
+h5 { /* Header 3 */
+  font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+  font-weight: bold;
+}
+
+code{ /* Code block */
+    font-size: 9px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = FALSE, dpi = 150, fig.path = "figs/") 
+
+options(scipen=999)
+set.seed(43) #set seed for random number generation
+```
+
+# Prep data {.tabset}
+## Load packages
+```{r packages, echo=FALSE}
+# import packages
+
+if (!require(pacman)) {
+  install.packages('pacman')
+}
+pacman::p_load(ggplot2, tidyverse, ggnetwork, network, sjPlot, lme4, lmerTest, tm, SnowballC, wordcloud, usmap, knitr, kableExtra, RColorBrewer, corrplot, Hmisc, tidyr, gtsummary, see, stringr, reactable, performance, wesanderson, janitor, ltm, cooccur, visNetwork, reshape2, plotly, dplyr, patchwork,marginaleffects, cowplot, stringr, tm, tidytext, gridExtra, patchwork, apaTables, install = TRUE)
+
+```
+
+## Define aesthetics
+```{r aesthetics}
+# set aesthetics 
+palette = c("#e64626", "#1985a1", "#ffb800", "aquamarine2")
+plot_aes = theme_minimal() +
+  theme(legend.position = "top",
+        text = element_text(size = 12, family = "Futura Medium"),
+        axis.text = element_text(color = "black"),
+        axis.line = element_line(colour = "black"),
+        axis.ticks.y = element_blank())
+
+```
+
+## Define functions 
+```{r functions}
+
+read_files = function(file) {
+  read.csv(file, stringsAsFactors = FALSE, colClasses = "character")
+}
+
+widen <- function(df) {
+  wide_df <- df %>% select(-scale_name) %>%
+  pivot_wider(names_from = item, values_from = value)
+  return(wide_df)
+}
+
+```
+
+
+## Load data 
+```{r}
+data_scored = read.csv("data_merged.csv") #scored data in wide format + individual vote motivation items + political ideology
+data_unscored = read.csv("data_unscored.csv") #unscored items from the initial survey
+```
+
+## Tidy data 
+
+### Determine who reported no intention to vote
+```{r}
+data_scored_original <- data_scored %>% 
+  mutate(no_intentions = ifelse(vote_intention_vote == 0, 1, 0))
+```
+
+### Tidy scale re-expansion 
+(note: CE attitudes or CE_att refers to sense of civic duty, originally labeled as civic attitudes)
+
+```{r tidyscales}
+
+IAF_auton_wide <- data_unscored %>%
+  filter(grepl("IAF_self_congruence", item)) %>%
+  spread(item, value)
+
+IAF_auton_mtx <- na.omit(IAF_auton_wide[,grep("IAF", names(IAF_auton_wide))])
+
+IAF_control_wide <- data_unscored %>%
+  filter(grepl("IAF_susceptibility_control", item)) %>%
+  spread(item, value)
+
+IAF_control_mtx <- na.omit(IAF_control_wide[,grep("IAF", names(IAF_control_wide))])
+
+CE_att_wide <- data_unscored %>%
+  filter(grepl("CE_attitudes", item)) %>%
+  spread(item, value)
+
+CE_att_mtx <- na.omit(CE_att_wide[c('CE_attitudes_1', 'CE_attitudes_2', 'CE_attitudes_3', 'CE_attitudes_4', 'CE_attitudes_5', 'CE_attitudes_6', 'CE_attitudes_7', 'CE_attitudes_8')])
+
+vote_auton_wide <- data_unscored %>%
+  filter(grepl("vote_motive_3|vote_motive_4|vote_motive_5", item)) %>%
+  spread(item, value)
+
+vote_auton_mtx <- na.omit(vote_auton_wide[c('vote_motive_3', 'vote_motive_4', 'vote_motive_5')])
+
+vote_control_wide <- data_unscored %>%
+  filter(grepl("vote_motive_1|vote_motive_2", item)) %>%
+  spread(item, value)
+
+vote_control_mtx <- na.omit(vote_control_wide[c('vote_motive_1', 'vote_motive_2')])
+
+
+```
+
+### Scale and winsorize 
+```{r scaling}
+
+# scale vars 
+vars_to_scale <- c("vote_intention_vote", "vote_intention_register",
+                   "IAF_autonomous", "IAF_controlled",
+                   "CE_checklist", "CE_attitudes", 
+                   "vote_motive_autonomous", "vote_motive_controlled",
+                   "autonomous_identified",  "autonomous_integrated", "autonomous_intrinsic",
+                   "controlled_external", "controlled_introjected")
+
+
+# winzorise vars 
+winsorize <- function(x) {
+  mean_x <- mean(as.numeric(x), na.rm = TRUE)
+  sd_x <- sd(as.numeric(x), na.rm = TRUE)
+  lower_limit <- mean_x - 3 * sd_x
+  upper_limit <- mean_x + 3 * sd_x
+  x[as.numeric(x) < lower_limit] <- lower_limit
+  x[as.numeric(x) > upper_limit] <- upper_limit
+  return(as.numeric(x))
+}
+
+scale_na <- function(x) {
+  scaled_x <- scale(as.numeric(x), center = TRUE, scale = TRUE)
+  return(ifelse(is.na(x), NA, scaled_x))
+}
+
+# renamed to data_scaled to avoid overwriting
+data_scaled <- data_scored %>%
+  mutate_at(vars_to_scale, winsorize) %>%
+  mutate_at(vars_to_scale, scale_na)
+
+```
+
+
+### Civic engagement behaviors 
+tidy, recode, and get co-occurrance matrix of civic behaviors 
+```{r tidyCE}
+
+CE_checklist_wide <- data_unscored %>%
+  filter(grepl("CE_checklist", item)) %>%
+  spread(item, value)
+
+CE_checklist_mtx <-CE_checklist_wide[c('study', 'SID', 'CE_checklist_1', 'CE_checklist_2', 'CE_checklist_3', 'CE_checklist_4', 'CE_checklist_5', 'CE_checklist_6', 'CE_checklist_7', 'CE_checklist_8', 'CE_checklist_9', 'CE_checklist_10', 'CE_checklist_11', 'CE_checklist_12', 'CE_checklist_13', 'CE_checklist_14', 'CE_checklist_15', 'CE_checklist_16', 'CE_checklist_17')]
+CE_checklist_mtx <- CE_checklist_mtx[rowSums(is.na(CE_checklist_mtx)) < ncol(CE_checklist_mtx), ]
+
+
+CE_checklist_long <-  pivot_longer(CE_checklist_mtx, !c(study, SID), names_to = "CE_checklist_item", values_to = "value")
+
+CE_checklist_all <- subset(data_unscored, grepl('CE_checklist', item))
+
+CE_checklist_all$item <- factor(CE_checklist_all$item, levels = c('CE_checklist_1', 
+                                'CE_checklist_2', 'CE_checklist_3', 'CE_checklist_4', 'CE_checklist_5', 'CE_checklist_6', 
+                                'CE_checklist_7', 'CE_checklist_8', 'CE_checklist_9', 'CE_checklist_10', 'CE_checklist_11',
+                                'CE_checklist_12', 'CE_checklist_13', 'CE_checklist_14', 'CE_checklist_15', 'CE_checklist_16', 
+                                'CE_checklist_17'))
+
+# Recode levels
+CE_checklist_all <- CE_checklist_all %>%
+  mutate(item_named = dplyr::recode(item, 
+                             "CE_checklist_1" = "participated in community problem solving", 
+                             "CE_checklist_2" = "volunteered", 
+                             "CE_checklist_3" = "participated in or donated to a group", 
+                             "CE_checklist_4" = "walked, ran, or cycled for charity", 
+                             "CE_checklist_5" = "raised money for charity", 
+                             "CE_checklist_6" = "conversations about voting, tried to persuade others", 
+                             "CE_checklist_7" = "displayed a button, sticker, or sign for a campaign", 
+                             "CE_checklist_8" = "Donated to a candidate, party, or campaign organization", 
+                             "CE_checklist_9" = "Volunteered for a political organization or campaign", 
+                             "CE_checklist_10" = "Contacted public officials", 
+                             "CE_checklist_11" = "Contacted a newspaper or magazine", 
+                             "CE_checklist_12" = "Called in to a radio or television program about a political issue", 
+                             "CE_checklist_13" = "took part in a protest, march, or demonstration", 
+                             "CE_checklist_14" = "signed a written petition", 
+                             "CE_checklist_15" = "boycotted", 
+                             "CE_checklist_16" = "buycotted", 
+                             "CE_checklist_17" = "canvassed for voting"))
+
+
+# Calculate the percentage of 1s for each item
+percent_yes <- CE_checklist_all %>%
+  group_by(item_named) %>%
+  summarise(
+    total = n(),  # Total count excluding NAs
+    ones = sum(value == 1, na.rm = TRUE),  # Count of 1s
+    percent_yes = (ones / total) * 100  # Percentage of 1s
+  ) %>%
+  ungroup() %>% subset(is.na(item_named) == FALSE)
+
+
+percent_yes <- percent_yes %>%
+  arrange(desc(percent_yes))
+
+
+# Filter data for only "yes" responses
+yes_responses <- CE_checklist_all %>%
+  filter(value == 1) %>% subset(is.na(item) == FALSE)
+
+# Create a data frame of the nodes in the network. 
+nodes <- data.frame(id = unique(yes_responses$item),
+                    label = unique(yes_responses$item),
+                    color = "#606482",
+                    shadow = FALSE) 
+
+item_combinations <- t(combn(unique(yes_responses$item), 2))
+item_combinations <- as.data.frame(item_combinations)
+item_combinations$item_X <- item_combinations$item_combinations[,1]
+item_combinations$item_Y <- item_combinations$item_combinations[,2]
+
+item_combinations <- item_combinations[c("item_X","item_Y")]
+
+
+# Generate edges dataframe
+edges <- merge(yes_responses, item_combinations, by.x = "item", by.y = "item_X")
+edges <- merge(edges, yes_responses, by.x = c("SID", "item_Y"), by.y = c("SID", "item"))
+edges <- edges[, c("SID", "item", "item_Y")]
+
+# Rename columns
+colnames(edges) <- c("SID", "from", "to")
+
+# Remove duplicates
+edges <- unique(edges)
+
+edge_weights <- edges %>%
+  group_by(from, to) %>%
+  summarise(weight = n())
+
+# Remove duplicate edges
+edge_weights <- unique(edge_weights)
+
+
+colnames(edge_weights) <- c("from", "to", "value")
+
+
+edge_weights <- edge_weights[edge_weights$from != edge_weights$to,]
+
+
+edge_weights <- edge_weights %>%
+  arrange(desc(value))
+
+edge_weights_top <- edge_weights[1:50,]
+
+# Ensure "from" and "to" columns have the same factor levels
+levels <- c("CE_checklist_1","CE_checklist_2","CE_checklist_3","CE_checklist_4","CE_checklist_5",
+  "CE_checklist_6","CE_checklist_7" ,"CE_checklist_8" ,"CE_checklist_9", "CE_checklist_10", "CE_checklist_11",
+  "CE_checklist_12","CE_checklist_13","CE_checklist_14","CE_checklist_15","CE_checklist_16","CE_checklist_17")
+
+edge_weights <- edge_weights %>%
+  mutate(from = factor(from, levels = levels),
+         to = factor(to, levels = levels))
+
+# Create a co-occurrence matrix
+co_occurrence_matrix <- edge_weights %>%
+  group_by(from, to) %>%
+  summarise(weight = sum(value)) %>%
+  ungroup()
+
+# Convert to a wide format dataframe suitable for ggplot2
+co_occurrence_df <- spread(co_occurrence_matrix, key = to, value = weight, fill = 0)
+
+# Convert to long format for ggplot2
+CE_checklist_co_occurrence_df_long <- melt(co_occurrence_df, id.vars = "from", variable.name = "to", value.name = "weight")
+
+```
+
+### Reasons for voting 
+tidy, recode, get co-occurrance matrix 
+```{r tidyreasons}
+
+reasons_data <- data_unscored %>%
+  filter(grepl("reasons", item))
+
+reasons_data_all <- reasons_data[c('study', 'SID', 'item', 'value')]
+reasons_data <- subset(reasons_data_all, value == 1)
+
+reasons_data <- reasons_data %>% mutate(reason_text = dplyr::recode(item, 
+                                                     "reasons_no_1" = "change_loc_frequently", 
+                                                     "reasons_no_2" = "vote_doesnt_matter",
+                                                     "reasons_no_3" = "too_much_work", 
+                                                     "reasons_no_4" = "too_busy", 
+                                                     "reasons_no_5" = "dont_know_how", 
+                                                     "reasons_no_6" = "doesnt_lead_to_societal_change", 
+                                                     "reasons_no_7" = "system_corrupt",
+                                                     "reasons_no_8" = "noone_cares_if_i_vote",
+                                                     "reasons_no_9" = "dont_like_candidates",
+                                                     "reasons_no_10" = "dont_meet_requirements",
+                                                     "reasons_no_11" = "dont_care_about_politics",
+                                                     "reasons_yes_1" = "is_civic_duty",
+                                                     "reasons_yes_2" = "part_of_being_adult",
+                                                     "reasons_yes_3" = "support_my_community",
+                                                     "reasons_yes_4" = "support_my_family",
+                                                     "reasons_yes_5" = "advocate_for_issues_care_about",
+                                                     "reasons_yes_6" = "make_voice_heard",
+                                                     "reasons_yes_7" = "hold_politicians_accountable",
+                                                     "reasons_yes_8" = "advance_social_justice",
+                                                     "reasons_yes_9" = "build_better_world",
+                                                     "reasons_yes_10" = "is_my_right",
+                                                     "reasons_yes_11" = "participate_in_democracy",
+                                                     "reasons_yes_12" = "care_about_election_consequences",
+                                                     "reasons_yes_13" = "outcome_affects_me_financially",
+                                                     "reasons_yes_14" = "be_part_something_bigger",
+                                                     "reasons_yes_15" = "express_myself",
+                                                     "reasons_yes_16" = "lot_at_stake_this_election",
+                                                     "reasons_yes_17" = "others_dont_want_me_to_vote",
+                                                     "reasons_yes_18" = "worried_about_my_future",
+                                                     "reasons_yes_19" = "other"))
+   
+
+sona2020 <- subset(reasons_data, study == '2020_student')
+sona2020 <- sona2020 %>% mutate(reason_text = dplyr::recode(reason_text, 
+                                                     "reasons_no_12" = "other"))
+                                
+
+
+sona2022 <- subset(reasons_data, study %in% c('2022_student1', '2022_student2'))
+
+
+sona2022 <- sona2022 %>% mutate(reason_text = dplyr::recode(reason_text, 
+                                                     "reasons_no_12" = "dont_know_what_on_ballot", 
+                                                     "reasons_no_13" = "not_qualified_to_make_decisions_about_ballot_items",
+                                                     "reasons_no_14" = "other"))
+                                
+
+PLTV_reasons <- subset(reasons_data, study == '2021_student')
+PLTV_reasons <- PLTV_reasons %>% mutate(reason_text = dplyr::recode(reason_text, 
+                                                     "reasons_no_12" = "dont_know_what_on_ballot", 
+                                                     "reasons_no_13" = "not_qualified_to_make_decisions_about_ballot_items",
+                                                     "reasons_no_14" = "other"))
+
+
+
+sona2024 <- subset(reasons_data, study %in% c('2024_student1', '2024_student2'))
+
+sona2024 <- sona2024 %>% mutate(reason_text = dplyr::recode(reason_text, 
+                                                     "reasons_no_12" = "dont_know_what_on_ballot", 
+                                                     "reasons_no_13" = "not_qualified_to_make_decisions_about_ballot_items",
+                                                     "reasons_no_14" = "other"))
+
+
+all_reasons_data <- rbind(sona2020, sona2022, PLTV_reasons, sona2024)
+
+
+get_matr <- function(keepstr) {
+  # Filter data for only "yes" responses
+  kept_reasons <- all_reasons_data %>%
+    mutate(scale_name = ifelse(grepl("no", item), "reasons_no", "reasons_yes")) %>%
+    filter(scale_name == keepstr) %>% subset(is.na(item) == FALSE)
+  
+  # Create a data frame of the nodes in the network. 
+  nodes <- data.frame(id = unique(kept_reasons$item),
+                      label = unique(kept_reasons$item),
+                      color = "#606482",
+                      shadow = FALSE) 
+  
+  item_combinations <- t(combn(unique(kept_reasons$item), 2))
+  item_combinations <- as.data.frame(item_combinations)
+  item_combinations$item_X <- item_combinations$V1
+  item_combinations$item_Y <- item_combinations$V2
+  
+  item_combinations <- item_combinations[c("item_X","item_Y")]
+  
+  
+  # Generate edges dataframe
+  # Generate edges dataframe
+  edges <- merge(kept_reasons, item_combinations, by.x = "item", by.y = "item_X")
+  edges <- merge(edges, kept_reasons, by.x = c("SID", "item_Y"), by.y = c("SID", "item"))
+  edges <- edges[, c("SID", "item", "item_Y")]
+  
+  # Rename columns
+  colnames(edges) <- c("SID", "from", "to")
+  
+  # Remove duplicates
+  edges <- unique(edges)
+  
+  edge_weights <- edges %>%
+    group_by(from, to) %>%
+    summarise(weight = n())
+  
+  # Remove duplicate edges
+  edge_weights <- unique(edge_weights)
+  
+  colnames(edge_weights) <- c("from", "to", "value")
+  
+  edge_weights <- edge_weights[edge_weights$from != edge_weights$to,]
+  
+  edge_weights <- edge_weights %>%
+    arrange(desc(value))
+  
+  # Ensure "from" and "to" columns have the same factor levels
+  levels <- unique(kept_reasons$item)
+  
+  edge_weights <- edge_weights %>%
+    mutate(from = factor(from, levels = levels),
+           to = factor(to, levels = levels))
+  
+  # Create a co-occurrence matrix
+  co_occurrence_matrix <- edge_weights %>%
+    group_by(from, to) %>%
+    summarise(weight = sum(value)) %>%
+    ungroup()
+  
+  # Convert to a wide format dataframe suitable for ggplot2
+  co_occurrence_df <- spread(co_occurrence_matrix, key = to, value = weight, fill = 0)
+  
+  # Convert to long format for ggplot2
+  reasons_co_occurrence_df_long <- melt(co_occurrence_df, id.vars = "from", variable.name = "to", value.name = "weight")
+  return(reasons_co_occurrence_df_long)
+}
+
+yes_reasons_co_occurrence_df_long <- get_matr('reasons_yes')
+no_reasons_co_occurrence_df_long <- get_matr('reasons_no')
+
+```
+
+```{r plotreasons}
+
+all_reasons_data_withscale <- all_reasons_data %>% 
+  mutate(scale_name = ifelse(grepl("reasons_yes", item), 'reasons_yes', 'reasons_no'))
+
+reasons_map <- distinct(all_reasons_data[c('item', 'reason_text')])
+
+reasons_map_to <- reasons_map
+names(reasons_map_to) <- c("to", "to_reason_text")
+
+reasons_map_from <- reasons_map
+names(reasons_map_from) <- c("from", "from_reason_text")
+
+
+# Now, perform the merges
+yes_reasons_co_occurrence_df_long <- merge(yes_reasons_co_occurrence_df_long, reasons_map_to, by = "to", all.x = TRUE)
+yes_reasons_co_occurrence_df_long <- merge(yes_reasons_co_occurrence_df_long, reasons_map_from, by = "from", all.x = TRUE)
+
+# Replace the 'to' and 'from' columns with the corresponding reason_text
+yes_reasons_co_occurrence_df_long$to <- yes_reasons_co_occurrence_df_long$to_reason_text
+yes_reasons_co_occurrence_df_long$from <- yes_reasons_co_occurrence_df_long$from_reason_text
+
+# Drop the temporary reason_text columns
+yes_reasons_co_occurrence_df_long <- yes_reasons_co_occurrence_df_long[, !(names(yes_reasons_co_occurrence_df_long) %in% c("to_reason_text", "from_reason_text"))]
+
+
+```
+
+(reasons for not voting)
+
+```{r}
+
+# Now, perform the merges
+no_reasons_co_occurrence_df_long <- merge(no_reasons_co_occurrence_df_long, reasons_map_to, by = "to", all.x = TRUE)
+no_reasons_co_occurrence_df_long <- merge(no_reasons_co_occurrence_df_long, reasons_map_from, by = "from", all.x = TRUE)
+
+# Replace the 'to' and 'from' columns with the corresponding reason_text
+no_reasons_co_occurrence_df_long$to <- no_reasons_co_occurrence_df_long$to_reason_text
+no_reasons_co_occurrence_df_long$from <- no_reasons_co_occurrence_df_long$from_reason_text
+
+# Drop the temporary reason_text columns
+no_reasons_co_occurrence_df_long <- no_reasons_co_occurrence_df_long[, !(names(no_reasons_co_occurrence_df_long) %in% c("to_reason_text", "from_reason_text"))]
+
+
+```
+
+
+# Sample {.tabset}
+
+Get summaries of samples/studies included; generate tables 
+
+## Sample size
+
+```{r sampsize}
+
+study_N <- as_data_frame(data_scored %>% group_by(study) %>% dplyr::summarise('study_N' = n()))
+
+data_scored$behavior_voting <- as.numeric(as.character(data_scored$behavior_voting))
+
+
+data_scored_original %>% group_by(study) %>% summarise(N_no_intentions = sum(no_intentions))
+
+
+# for follow up studies (with voting behavior) for SONA: 
+follow_up_N <- as_data_frame(subset(data_scored, !is.na(behavior_voting)) %>% group_by(study) %>% summarise('follow_up_N' = n()))
+
+data_scored <- data_scored %>% 
+  mutate(mismatch_already_voted = ifelse(already_voted == 1 & behavior_voting != 1, 1, 0))
+# NOTE - one person said they voted already (intentions == 8) but in a follow-up study said they did not vote; will recode as 7 as the rest, but not include in final N. 
+# Otherwise everyone who said intentions == 8 and had a follow-up study are already included. 
+# I'll adjust this variable to only include those who did not have a follow-up study: 
+
+data_scored <- data_scored %>% 
+  mutate(unique_already_voted = ifelse(already_voted == 1 & is.na(behavior_voting), 1, 0))
+                         
+alreadyvoted_N <- as_data_frame(subset(data_scored, unique_already_voted == 1) %>% group_by(study) %>% summarise('alreadyvoted_N' = n()))
+               
+                         
+
+all_N <- merge(study_N, alreadyvoted_N, by = "study", all = TRUE)
+
+all_N <-  merge(all_N, follow_up_N, by = "study", all = TRUE)
+  
+
+all_N_long <- all_N %>%
+  pivot_longer(cols = c("study_N", "alreadyvoted_N", "follow_up_N"), 
+               names_to = "Sample_Type", 
+               values_to = "Sample_Size") %>%
+  mutate(Sample_Type = case_when(
+    Sample_Type == "study_N" ~ "Sample N",
+    Sample_Type == "follow_up_N" ~ "Follow up N",
+    Sample_Type == "alreadyvoted_N" ~ "Already voted before initial survey N"
+  ))
+
+all_N_wide <- all_N_long %>%
+  pivot_wider(names_from = study, values_from = Sample_Size) %>%
+  rename(Sample_Type = Sample_Type)
+
+all_N_wide <- all_N_wide %>%
+  mutate_all(~ifelse(is.na(.), '-', .))
+
+all_N_wide <- all_N_wide %>% select(-Sample_Type)
+
+elections <- c('2020 general', '2020 general', '2021 primary','2022 midterm','2022 midterm', '2022 midterm', '2022 midterm', '2024 general', '2024 general')
+
+descriptions <- c('US general sample', 'College student sample', 'College student sample', 'US general sample (#1)', 'US general sample (#2)', 'College student sample (#1)', 'College student sample (#2)', 'College student sample (#1)', 'College student sample (#2)')
+
+titles <- c('2020 general', '2020 student', '2021 student', '2022 general v.1', '2022 general v.2', '2022 student v.1', '2022 student v.2', '2024 student v.1', '2024 student v.2')
+
+sample_labels <- colnames(all_N_wide)
+colnames(all_N_wide) <- titles
+all_N_wide <- rbind(all_N_wide, elections, descriptions)
+  
+
+row_labels <- c('Sample N', 'Already voted before initial survey N', 'Follow up N', 'Election type and year', 'Sample description') 
+rownames(all_N_wide) <- row_labels
+new_row_order <- c('Election type and year', 'Sample description', 'Sample N', 'Already voted before initial survey N', 'Follow up N') 
+all_N_wide <- all_N_wide[new_row_order,]
+rownames(all_N_wide) <- new_row_order
+
+#all_N_wide <- tibble::rownames_to_column(all_N_wide, " - ")
+
+
+# Customize colors for kable
+kable_custom_colors <- 
+"th {background-color: #f2f2f2; color: #333333;}
+td {background-color: #ffffff; color: #333333;}
+table {border-collapse: collapse;}
+table, th, td {border: 1px solid #333333;}"
+
+```
+
+### Ns per sample (Table 2)
+```{r}
+
+# Create the table using kable
+kable(t(all_N_wide), table.attr = "style = \"color: gray;\"", row.names = TRUE) %>% 
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(1, bold = TRUE, border_right = TRUE) %>%
+  kable_styling(font_size = 20) %>% 
+  kable_classic(full_width = F, html_font = "Calibri")
+
+```
+
+### Add people who reported already voting in pre-survey to follow-up analyses
+```{r}
+data_scored <- data_scored %>% 
+  mutate(behavior_voting = ifelse((already_voted == 1 & is.na(behavior_voting)), 1, behavior_voting))
+```
+
+## Sample variables included (Table 3)
+```{r measuredvars}
+
+# Define the row names and column names
+rownames <- c('2020 general', '2020 student', '2021 student', 
+              '2022 general v.1', '2022 general v.2', 
+              '2022 student v.1', '2022 student v.2', 
+              '2024 student v.1', '2024 student v.2')
+
+colnames <- c('Voting Intentions', 'Voting Behavior', 'Sense of Civic Duty', 'Civic Engagement Behavior Checklist', 'Index of Autonomous Functioning')
+
+# Create the data as a list of vectors
+data_measures <- list(
+  'Voting Intentions' = c('Collected', 'Collected', 'Collected', 
+                                        'Collected', 'Collected', 'Collected', 'Collected', 
+                          'Collected', 'Collected'),
+  'Voting Behavior' = c('Not collected', 'Collected', 'Not collected', 
+                        'Not collected', 'Not collected', 'Collected', 'Collected', 
+                        'Collected', 'Collected'),
+  'Sense of Civic Duty' = c('Collected', 'Collected', 'Collected', 
+                                        'Collected', 'Collected', 'Collected', 'Collected', 
+                            'Collected', 'Collected'),
+  'Civic Engagement Behavior Checklist' = c('Collected', 'Collected', 'Collected', 
+                                            'Collected', 'Not collected', 'Collected', 'Collected', 
+                                            'Collected', 'Collected'),
+  'Index of Autonomous Functioning' = c('Collected', 'Collected', 'Not collected', 
+                                        'Collected', 'Collected', 'Collected', 'Collected', 
+                                        'Collected', 'Collected')
+)
+
+# Create the data frame
+df_measures <- data.frame(data_measures, row.names = rownames)
+
+kable(df_measures, col.names = colnames, table.attr = "style = \"color: gray;\"", row.names = TRUE) %>% 
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(1, bold = TRUE, border_right = TRUE) %>%
+  kable_styling(font_size = 20) %>% 
+  kable_classic(full_width = F, html_font = "Calibri")
+```
+
+
+# Scale internal validity (included in Methods) {.tabset}
+
+## IAF 
+```{r scalecheck}
+
+cronbach.alpha(IAF_auton_mtx, CI=TRUE)
+cronbach.alpha(IAF_control_mtx, CI=TRUE)
+
+```
+
+## Sense of civic duty  
+```{r}
+cronbach.alpha(CE_att_mtx, CI=TRUE)
+
+```
+
+## Autonomous motivation to vote  
+```{r scalecorrs}
+
+cronbach.alpha(vote_auton_mtx, CI=TRUE)
+corr_matx <- rcorr(as.matrix(vote_auton_mtx),type="pearson")
+corrplot(corr_matx$r, method="shade", diag = FALSE, order = 'alphabet', addCoef.col ='black', pch.col = 'black', tl.col = 'black', number.cex = 0.8)
+
+```
+
+## Controlled motivation to vote  
+```{r}
+cronbach.alpha(vote_control_mtx, CI=TRUE)
+corr_matx <- rcorr(as.matrix(vote_control_mtx),type="spearman")
+corrplot(corr_matx$r, method="shade", diag = FALSE, order = 'alphabet', addCoef.col ='black', pch.col = 'black', tl.col = 'black', number.cex = 0.8)
+```
+
+
+
+# Relationships between variables {.tabset} 
+
+### Correlations between independent variables (Table 4)
+
+```{r plotcorrs}
+
+keyvars <- data_scored[c('vote_motive_autonomous', 
+                         'vote_motive_controlled',
+                         'IAF_autonomous', 
+                         'IAF_controlled')]
+colnames(keyvars) <- c('VM-A','VM-C','IAF-A','IAF-C')
+corr_matx <- rcorr(as.matrix(keyvars),type="pearson")
+
+apa.cor.table(keyvars)
+
+
+```
+
+
+#PRIMARY ANALYSES: MOTIVATIONS TO VOTE {.tabset}
+
+## H1: Intentions to vote {.tabset}
+
+Higher autonomous motivation for voting will be positively associated with intentions to vote, whereas higher controlled motivation will be negatively or not associated with voting intentions. 
+
+### Main model {.tabset}
+
+#### model 
+```{r}
+
+h1 = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = data_scaled)
+
+```
+
+#### plot 
+
+```{r, fig.width=5, fig.height=4}
+
+# plot, across all studies (main effects, not accounting for study)
+
+palette = c("#e64626", "#1985a1", "#ffb800", "aquamarine2")
+
+
+plot_h1 <- ggeffects::ggpredict(h1, c("vote_motive_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h1, c("vote_motive_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\n motivation to vote (SD)", y = "Predicted rating (SD)\n", title = "A. Intention to vote") +
+  plot_aes
+
+```
+
+
+### Leave-one-study-out 
+```{r}
+
+# LEAVE ONE OUT 
+loo.models_h1 <- c()
+loo.models_h1.studies <- c('2020_student', '2020_general', '2021_student', '2022_general2', '2022_general1', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+loo.models_h1 <- list()
+
+
+for (i in c(1:length(loo.models_h1.studies))){
+  subset_datascored <- subset(data_scored, study != loo.models_h1.studies[i])
+  loo.models_h1[[i]] <- lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = subset_datascored)
+}
+
+loo.models_h1[[length(loo.models_h1) + 1]] <- h1
+
+studies_labels <- paste("LOO: ", loo.models_h1.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h1), function(i) {
+  model <- loo.models_h1[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "vote_motive_autonomous" ~ "MV-A",
+    term == "vote_motive_controlled" ~ "MV-C"
+  ))
+
+
+plot_h1_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "Motivation",
+    title = "A. Intention to vote"
+  )
+
+```
+
+### Per study 
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h1b = lm(vote_intention_vote ~ vote_motive_autonomous*study + vote_motive_controlled*study, data = data_scaled)
+
+marg_effects <- slopes(h1b, newdata = datagrid(study = unique(loo.models_h1.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+  mutate(term_label = ifelse(term == "vote_motive_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h1b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    x = "Study",
+    y = "Estimate",
+    color = "Motivation Type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+```
+
+
+## H2: Voting behavior {.tabset}
+
+Higher autonomous motivation for voting will be associated with an increased probability of voting, whereas higher controlled motivation will be unrelated to or associated with a lower probability of voting.
+
+### Main model {.tabset}
+
+#### model
+```{r}
+
+h2 = glmer(behavior_voting ~ vote_motive_autonomous + vote_motive_controlled + (1 | study),
+        data = filter(data_scaled, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+```
+
+#### plot
+```{r}
+# plot, across all studies (main effects, not accounting for study)
+vals = seq(1,7,.2)
+
+plot_h2 <- ggeffects::ggpredict(h2, c("vote_motive_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h2, c("vote_motive_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  ylim(0,1) + 
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\nmotivation to vote (SD)", y = "Predicted probability (SD)\n", title = "B. Self-reported voting behavior") +
+  plot_aes
+
+
+```
+
+### Leave-one-study-out 
+```{r, fig.width=5, fig.height=4}
+
+loo.models_h2 <- list()
+
+loo.models_h2.studies <- c('2020_student', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+
+
+for (i in c(1:length(loo.models_h2.studies))){
+  subset_datascored <- subset(data_scaled, study != loo.models_h2.studies[i])
+  loo.models_h2[[i]] <- glmer(behavior_voting ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = subset_datascored, family = "binomial")
+  
+}
+
+loo.models_h2[[length(loo.models_h2) + 1]] <- h2
+
+studies_labels <- paste("LOO: ", loo.models_h2.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h2), function(i) {
+  model <- loo.models_h2[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "vote_motive_autonomous" ~ "MV-A",
+    term == "vote_motive_controlled" ~ "MV-C"
+  ))
+
+plot_h2_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "Motivation",
+    title = "B. Self-reported voting behavior"
+  )
+
+
+```
+
+### Per study
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h2_b = glm(behavior_voting ~ vote_motive_autonomous*study + vote_motive_controlled*study,
+           data = filter(data_scaled, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+
+marg_effects <- slopes(h2_b, newdata = datagrid(study = unique(loo.models_h2.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+  mutate(term_label = ifelse(term == "vote_motive_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h2b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    x = "Study",
+    y = "Estimate",
+    color = "Motivation Type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+```
+
+## H3: Sense of civic duty {.tabset}
+
+Higher autonomous motivation for voting will be positively associated with sense of civic duty, whereas higher controlled motivation will be negatively or not associated with civic duty. 
+
+### Main model {.tabset}
+
+#### model 
+```{r}
+
+data_scaled$civic_duty <- data_scaled$CE_attitudes
+
+h3 <- lmer(civic_duty ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = data_scaled)
+
+```
+
+#### plot 
+```{r}
+
+plot_h3 <- ggeffects::ggpredict(h3, c("vote_motive_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h3, c("vote_motive_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\nmotivation to vote (SD)", y = "Predicted rating (SD)\n", title = "C. Sense of civic duty") +
+  plot_aes
+
+```
+
+
+### Leave-one-study-out 
+```{r, fig.width=5, fig.height=4}
+
+loo.models_h3.studies <- c('2020_student', '2020_general', '2021_student', '2022_general2', '2022_general1', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+
+loo.models_h3 <- list()
+
+
+
+for (i in c(1:length(loo.models_h3.studies))){
+  subset_datascored <- subset(data_scaled, study != loo.models_h3.studies[i])
+  loo.models_h3[[i]] <- lmerTest::lmer(civic_duty ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = subset_datascored)
+  
+}
+
+loo.models_h3[[length(loo.models_h3) + 1]] <- h3
+
+studies_labels <- paste("LOO: ", loo.models_h3.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h3), function(i) {
+  model <- loo.models_h3[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "vote_motive_autonomous" ~ "MV-A",
+    term == "vote_motive_controlled" ~ "MV-C"
+  ))
+
+plot_h3_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "Motivation",
+    title = "C. Sense of civic duty"
+  )
+
+```
+
+### Per study 
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h3_b = lm(civic_duty ~ vote_motive_autonomous*study + vote_motive_controlled*study, data = data_scaled)
+
+marg_effects <- slopes(h3_b, newdata = datagrid(study = unique(loo.models_h2.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+  mutate(term_label = ifelse(term == "vote_motive_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h3_b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    x = "Study",
+    y = "Estimate",
+    color = "Motivation Type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+
+```
+
+## H4: Civic behavior {.tabset}
+
+Higher autonomous motivation for voting will be positively associated with civic behavior rates, whereas higher controlled motivation will be negatively or not associated with civic behavior.  
+
+### Main model {.tabset}
+
+#### model 
+```{r}
+
+h4 = lmer(CE_checklist ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = filter(data_scaled, !grepl("2022_general2", study)))
+
+# WITHOUT 2020 GENERAL SAMPLE, which shows distinctive pattern 
+h4_wo2020gen = lmer(CE_checklist ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = filter(data_scaled, !grepl("2022_general2|2020_general", study)))
+
+```
+
+
+### Leave-one-study-out 
+```{r, fig.width=5, fig.height=4}
+
+# plot, across all studies (main effects, not accounting for study)
+
+loo.models_h4.studies <- c('2020_student', '2020_general', '2021_student', '2022_general1', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+loo.models_h4 <- list()
+
+
+
+for (i in c(1:length(loo.models_h4.studies))){
+  subset_datascored <- subset(data_scaled, study != loo.models_h4.studies[i])
+  print(loo.models_h4.studies[i])
+  print(i)
+  loo.models_h4[[i]] <- lmerTest::lmer(CE_checklist ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = subset_datascored)
+  
+}
+
+loo.models_h4[[length(loo.models_h4) + 1]] <- h4
+
+studies_labels <- paste("LOO: ", loo.models_h4.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h4), function(i) {
+  model <- loo.models_h4[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "vote_motive_autonomous" ~ "MV-A",
+    term == "vote_motive_controlled" ~ "MV-C"
+  ))
+
+plot_h4_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "Motivation",
+    title = "D. Number of civic behaviors"
+  )
+
+
+```
+
+#### main plot (w/ and w/o 2020general)
+
+```{r}
+loo_2020general <- loo.models_h4[[2]]
+
+loo_2020general_controlled_line <- ggeffects::ggpredict(loo_2020general, c("vote_motive_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled_without_2020general")
+
+
+plot_h4_base <- ggeffects::ggpredict(h4, c("vote_motive_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h4, c("vote_motive_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\nmotivation to vote (SD)", y = "Predicted N (SD)\n", title = "D. Number of civic behaviors") +
+  plot_aes
+
+
+plot_h4 <- plot_h4_base + 
+  geom_line(data = loo_2020general_controlled_line, 
+            aes(x = x, y = predicted), 
+            color = "#1985a1", linetype = "dotted", inherit.aes = FALSE, show.legend = FALSE) + 
+  geom_ribbon(data = loo_2020general_controlled_line, 
+              aes(x = x, ymin = conf.low, ymax = conf.high), 
+              fill = "#1985a1", alpha = .075, inherit.aes = FALSE, show.legend = FALSE)
+
+
+```
+
+### Per study 
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h4_b = lm(CE_checklist ~ vote_motive_autonomous*study + vote_motive_controlled*study, data = filter(data_scaled, !grepl("2022_general2", study)))
+
+
+marg_effects <- slopes(h4_b, newdata = datagrid(study = unique(loo.models_h4.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+  mutate(term_label = ifelse(term == "vote_motive_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h4_b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    x = "Study",
+    y = "Estimate",
+    color = "Motivation Type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+
+```
+
+
+## **TABLES AND PLOT (Table 6, Figure 1) 
+```{r}
+tab_model(h1, h3, h4, show.icc = FALSE, show.re.var = FALSE, show.ngroups = FALSE, show.stat = TRUE, show.df = TRUE, dv.labels = c('H1: VM and voting intentions', 'H3: VM and sense of civic duty', 'H4: VM and civic behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(h2, show.icc = FALSE, show.re.var = FALSE, show.ngroups = FALSE, show.stat = TRUE, show.df = TRUE, dv.labels = c('H2: VM and voting behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+final_plot <- grid.arrange(plot_h1, plot_h2, perstudy_h1b, perstudy_h2b, plot_h3, plot_h4, perstudy_h3_b, perstudy_h4_b, widths = c(1,1), heights = c(2,1.3,2,1.3), ncol = 2)
+ggsave("figs/combined_motives_patchwork.png", final_plot, width = 12.5, height = 14)
+ggdraw(final_plot)
+
+```
+
+
+# Motivation scales as individual items
+
+## H1 
+```{r}
+# order: 1 = controlled/external, 2 = controlled/introjected, 3 = auton/identified, 4 = auton/intrinsic, 5 = auton/integrated
+
+h1_expmot = lmerTest::lmer(vote_intention_vote ~ as.numeric(controlled_external) + as.numeric(controlled_introjected) + as.numeric(autonomous_identified) + as.numeric(autonomous_intrinsic) + as.numeric(autonomous_integrated) + (1 | study), data = data_scaled)
+
+car::vif(h1_expmot, type="predictor")
+
+
+```
+
+## H2 
+```{r}
+h2_expmot = glmer(behavior_voting ~  as.numeric(controlled_external) + as.numeric(controlled_introjected) + as.numeric(autonomous_identified) + as.numeric(autonomous_intrinsic) + as.numeric(autonomous_integrated) + (1 | study), data = filter(data_scaled, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+```
+
+## H3 
+
+```{r}
+
+h3_expmot = lmer(civic_duty ~ as.numeric(controlled_external) + as.numeric(controlled_introjected) + as.numeric(autonomous_identified) + as.numeric(autonomous_intrinsic) + as.numeric(autonomous_integrated) + (1 | study), data = data_scaled)
+
+```
+
+## H4 
+```{r}
+h4_expmot = lmer(CE_checklist ~ as.numeric(controlled_external) + as.numeric(controlled_introjected) + as.numeric(autonomous_identified) + as.numeric(autonomous_intrinsic) + as.numeric(autonomous_integrated) + (1 | study), data = filter(data_scaled, !grepl("2022_general2", study)))
+
+```
+
+## H4 excl. 2020 general sample 
+```{r}
+h4_expmot_wo2020gen = lmer(CE_checklist ~ as.numeric(controlled_external) + as.numeric(controlled_introjected) + as.numeric(autonomous_identified) + as.numeric(autonomous_intrinsic) + as.numeric(autonomous_integrated) + (1 | study), data = filter(data_scaled, !grepl("2022_general2|2020_general", study)))
+
+```
+
+## **TABLES 
+```{r}
+
+tab_model(h1_expmot, show.icc = FALSE, df.method = "satterthwaite", show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H1: VM and voting intentions'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(h2_expmot, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H2: VM and voting behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(h3_expmot, df.method = "satterthwaite", show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H3: VM and sense of civic duty'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(h4_expmot, df.method = "satterthwaite", show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H4: VM and civic behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+```
+
+
+#PRIMARY ANALYSES: AUTONOMOUS AND CONTROLLED FUNCTIONING 
+
+## H5: intentions to vote {.tabset}
+
+Higher autonomous functioning will be positively associated with intentions to vote, whereas higher controlled functioning will be negatively or not associated with voting intentions
+
+### Main model {.tabset}
+
+#### model 
+```{r}
+
+h5 = lmer(vote_intention_vote ~ IAF_autonomous + IAF_controlled + (1 | study),
+        data = filter(data_scaled, !grepl("2021_student", study)))
+
+```
+
+#### plot 
+```{r}
+
+plot_h5 <- ggeffects::ggpredict(h5, c("IAF_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h5, c("IAF_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\nIAF subscale score (SD)", y = "Predicted rating (SD)\n", title = "A. Intention to vote ") +
+  plot_aes
+
+```
+
+### Leave-one-sample-out
+```{r, fig.width=5, fig.height=4}
+
+# plot, across all studies (main effects, not accounting for study)
+
+loo.models_h5.studies <- c('2020_student', '2020_general', '2022_general2', '2022_general1', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+loo.models_h5 <- list()
+
+
+for (i in c(1:length(loo.models_h5.studies))){
+  subset_datascored <- subset(data_scaled, study != loo.models_h5.studies[i])
+  loo.models_h5[[i]] <- lmerTest::lmer(vote_intention_vote ~ IAF_autonomous + IAF_controlled + (1 | study), data = subset_datascored)
+}
+
+loo.models_h5[[length(loo.models_h5) + 1]] <- h5
+
+studies_labels <- paste("LOO: ", loo.models_h5.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h5), function(i) {
+  model <- loo.models_h5[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "IAF_autonomous" ~ "IAF-A",
+    term == "IAF_controlled" ~ "IAF-C"
+  ))
+
+plot_h5_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "IAF subscale",
+    title = "A. Intention to vote"
+  )
+
+```
+
+### Per study
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h5_b = lm(vote_intention_vote ~ IAF_autonomous*study + IAF_controlled*study,
+           data = filter(data_scaled, !grepl("2021_student", study)))
+
+
+marg_effects <- slopes(h5_b, newdata = datagrid(study = unique(loo.models_h5.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+  mutate(term_label = ifelse(term == "IAF_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h5b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    color = "Functioning type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+```
+
+
+
+## H6: Voting behavior {.tabset}
+
+Higher autonomous functioning will be associated with an increased probability of voting, whereas higher controlled functioning will be unrelated to or associated with a lower probability of voting.
+
+### Main model {.tabset}
+
+#### Model 
+```{r}
+
+h6 = glmer(behavior_voting ~ IAF_autonomous + IAF_controlled + (1 | study),
+        data = filter(data_scaled, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+```
+
+#### Plot
+```{r}
+
+plot_h6 <- ggeffects::ggpredict(h6, c("IAF_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h6, c("IAF_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  ylim(0,1) + 
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\nIAF subscale score (SD)", y = "Predicted probability (SD)\n", title = "B. Self-reported voting behavior") +
+  plot_aes
+
+
+```
+
+
+### Leave-one-sample-out
+```{r, fig.width=5, fig.height=4}
+
+loo.models_h6 <- list()
+
+loo.models_h6.studies <- c('2020_student', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+
+
+for (i in c(1:length(loo.models_h6.studies))){
+  subset_datascored <- subset(data_scaled, study != loo.models_h6.studies[i])
+  loo.models_h6[[i]] <- glmer(behavior_voting ~ IAF_autonomous + IAF_controlled + (1 | study), data = subset_datascored, family = "binomial")
+  
+}
+
+loo.models_h6[[length(loo.models_h6) + 1]] <- h6
+
+studies_labels <- paste("LOO: ", loo.models_h6.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h6), function(i) {
+  model <- loo.models_h6[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "IAF_autonomous" ~ "IAF-A",
+    term == "IAF_controlled" ~ "IAF-C"
+  ))
+
+plot_h6_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "IAF subscale",
+    title = "B. Self-reported voting behavior"
+  )
+
+```
+
+### Per study 
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h6_b = glm(behavior_voting ~ IAF_autonomous*study + IAF_controlled*study,
+           data = filter(data_scaled, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+marg_effects <- slopes(h6_b, newdata = datagrid(study = unique(loo.models_h6.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+  mutate(term_label = ifelse(term == "IAF_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h6b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    x = "Study",
+    y = "Estimate",
+    color = "Functioning type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+
+```
+
+## H7: Sense of civic duty {.tabset}
+
+Higher autonomous functioning will be positively associated with sense of civic duty, whereas higher controlled functioning will be negatively or not associated with civic duty. 
+
+#### Main model {.tabset}
+
+##### Model 
+
+```{r}
+
+h7 = lmer(civic_duty ~ IAF_autonomous + IAF_controlled + (1 | study), data = filter(data_scaled, !grepl("2021_student", study)))
+
+```
+
+##### Plot 
+```{r}
+
+plot_h7 <- ggeffects::ggpredict(h7, c("IAF_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h7, c("IAF_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\nIAF subscale score (SD)", y = "Predicted rating (SD)\n", title = "C. Sense of civic duty") +
+  plot_aes
+
+```
+
+#### Leave-one-sample-out
+```{r, fig.width=5, fig.height=4}
+
+# plot, across all studies (main effects, not accounting for study)
+
+loo.models_h7.studies <- c('2020_student', '2020_general', '2022_general2', '2022_general1', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+loo.models_h7 <- list()
+
+
+
+for (i in c(1:length(loo.models_h7.studies))){
+  subset_datascored <- subset(data_scaled, study != loo.models_h7.studies[i])
+  loo.models_h7[[i]] <- lmerTest::lmer(civic_duty ~ IAF_autonomous + IAF_controlled + (1 | study), data = subset_datascored)
+}
+
+loo.models_h7[[length(loo.models_h7) + 1]] <- h7
+
+studies_labels <- paste("LOO: ", loo.models_h7.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h7), function(i) {
+  model <- loo.models_h7[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "IAF_autonomous" ~ "IAF-A",
+    term == "IAF_controlled" ~ "IAF-C"
+  ))
+
+plot_h7_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "IAF subscale",
+    title = "C. Sense of civic duty"
+  )
+
+```
+
+#### Per study
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h7_b = lm(civic_duty ~ IAF_autonomous*study + IAF_controlled*study, data = filter(data_scaled, !grepl("2021_student", study)))
+
+
+marg_effects <- slopes(h7_b, newdata = datagrid(study = unique(loo.models_h7.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+  mutate(term_label = ifelse(term == "IAF_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h7_b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    x = "Study",
+    y = "Estimate",
+    color = "Functioning type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+```
+
+## H8: Civic behavior {.tabset}
+
+Higher autonomous functioning will be positively associated with sense of civic behavior rates, whereas higher controlled functioning will be negatively or not associated with civic behavior.  
+
+### Main model {.tabset}
+
+#### model
+```{r}
+
+h8 = lmer(CE_checklist ~ IAF_autonomous + IAF_controlled + (1 | study), data = filter(data_scaled, !grepl("2021_student|2022_general2", study)))
+
+
+h8_wo2020gen = lmer(CE_checklist ~ IAF_autonomous + IAF_controlled + (1 | study), data = filter(data_scaled, !grepl("2021_student|2022_general2|2020_general", study)))
+
+```
+
+
+### Leave-one-sample-out
+```{r, fig.width=5, fig.height=4}
+
+loo.models_h8.studies <- c('2020_student', '2020_general', '2022_general1', '2022_student2', '2022_student1', '2024_student1', '2024_student2')
+
+loo.models_h8 <- list()
+
+
+for (i in c(1:length(loo.models_h8.studies))){
+  subset_datascored <- subset(data_scaled, study != loo.models_h8.studies[i])
+  loo.models_h8[[i]] <- lmerTest::lmer(CE_checklist ~ IAF_autonomous + IAF_controlled + (1 | study), data = subset_datascored)
+}
+
+loo.models_h8[[length(loo.models_h8) + 1]] <- h8
+
+studies_labels <- paste("LOO: ", loo.models_h8.studies, sep="")
+studies_labels <- c(studies_labels, "all samples")
+
+
+# updated plotting
+model_data <- lapply(seq_along(loo.models_h8), function(i) {
+  model <- loo.models_h8[[i]]
+  label <- studies_labels[i]
+  
+  broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+    mutate(sample = label)
+}) %>% bind_rows()
+
+model_data <- model_data %>%
+  mutate(motivation = case_when(
+    term == "IAF_autonomous" ~ "IAF-A",
+    term == "IAF_controlled" ~ "IAF-C"
+  ))
+
+plot_h8_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    x = "",
+    y = "Estimate",
+    color = "IAF subscale",
+    title = "D. Number of civic behaviors"
+  )
+
+plot_h8_loo
+
+```
+
+
+#### main plot (w/ and w/o 2020general) 
+
+```{r}
+loo_2020general_iaf <- loo.models_h8[[2]]
+
+loo_2020general_controlled_line_iaf <- ggeffects::ggpredict(loo_2020general_iaf, c("IAF_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled_without_2020general")
+
+
+
+plot_h8_base <- ggeffects::ggpredict(h8, c("IAF_autonomous[-3:3]")) %>%
+  data.frame() %>%
+  mutate(type = "autonomous") %>%
+  bind_rows(ggeffects::ggpredict(h8, c("IAF_controlled[-3:3]")) %>%
+              data.frame() %>%
+              mutate(type = "controlled")) %>%
+  ggplot(aes(x, predicted, color = type, fill = type)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, color = NA) +
+  geom_line() +
+  scale_color_manual(name = "", values = palette) +
+  scale_fill_manual(name = "", values = palette) +
+  labs(x = "\nIAF subscale score (SD)", y = "Predicted N (SD)\n", title = "D. Number of civic behaviors") +
+  plot_aes
+
+plot_h8 <- plot_h8_base + 
+  geom_line(data = loo_2020general_controlled_line_iaf, 
+            aes(x = x, y = predicted), 
+            color = "#1985a1", linetype = "dotted", inherit.aes = FALSE, show.legend = FALSE) + 
+  geom_ribbon(data = loo_2020general_controlled_line_iaf, 
+              aes(x = x, ymin = conf.low, ymax = conf.high), 
+              fill = "#1985a1", alpha = .075, inherit.aes = FALSE, show.legend = FALSE)
+
+
+
+```
+
+### Per study 
+```{r, fig.width=12, fig.height=4}
+
+# plot per study 
+  
+h8_b = lm(CE_checklist ~ IAF_autonomous*study + IAF_controlled*study, data = filter(data_scaled, !grepl("2021_student|2022_general2", study)))
+
+
+marg_effects <- slopes(h8_b, newdata = datagrid(study = unique(loo.models_h8.studies)))
+marg_effects_summary <- marg_effects %>%
+  filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+  mutate(term_label = ifelse(term == "IAF_autonomous", "Autonomous", "Controlled"))
+
+# Plot the marginal effects
+perstudy_h8_b <- ggplot(marg_effects_summary, aes(x = study, y = estimate, color = term_label)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, linewidth = 1) +
+  scale_color_manual(values = palette) +
+  labs(
+    x = "Study",
+    y = "Estimate",
+    color = "Functioning type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(angle = 15, size = 10)
+  ) +
+  geom_hline(yintercept = 0, color = "lightgrey", linetype = "dashed")
+
+```
+
+
+## **TABLES AND PLOT (Table 8, Figure 2)
+```{r}
+tab_model(h5,h7, h8, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite", show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H5: IAF and voting intentions', 'H7: IAF and sense of civic duty', 'H8: IAF and civic behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(h6, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('H6: IAF and voting behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+final_plot <- grid.arrange(plot_h5, plot_h6, perstudy_h5b, perstudy_h6b, plot_h7, plot_h8, perstudy_h7_b, perstudy_h8_b, widths = c(1,1), heights = c(2,1.3,2,1.3), ncol = 2)
+ggsave("figs/combined_IAF_patchwork.png", final_plot, width = 12, height = 14)
+
+ggdraw(final_plot)
+
+```
+
+# REASONS TO VOTE ANALYSES {.tabset} 
+
+## Reasons for voting  
+
+```{r}
+
+# GET KEY AND TEXT
+reasons_yes_key <-  unique(subset(all_reasons_data_withscale, scale_name == 'reasons_yes')[c('item', 'reason_text')]) 
+
+reasons_yes_key <- reasons_yes_key %>%
+  separate(item, into = c("part1", "part2", "reasons_yes_number"), sep = "_", convert = TRUE) %>%
+  select(-part1, -part2) %>% 
+  arrange(reasons_yes_number)
+
+reasons_yes_key$reasons_varname <- paste0('reasons_yes_', as.character(reasons_yes_key$reasons_yes_number))
+
+# these participants all responded to at least some reasons 
+partic_said_yes_any <- unique(subset(all_reasons_data_withscale, scale_name == 'reasons_yes')$SID)
+
+all_reasons_data_withscale$reasons_value <- all_reasons_data_withscale$value 
+all_reasons_data_withscale$reasons_id <- all_reasons_data_withscale$item 
+
+
+# merge reasons and data_scaled 
+data_scaled_reasons <- all_reasons_data_withscale %>% select(c(study, SID,reasons_id, reasons_value)) %>% pivot_wider(names_from = "reasons_id", values_from = "reasons_value") %>% merge(data_scaled, by = c("SID", "study"))
+
+#%>% pivot_wider(names_from = "item", values_from = "value") %>% 
+
+reasons_analyses_data <- subset(data_scaled_reasons, SID %in% partic_said_yes_any)
+
+reasons_analyses_data <- reasons_analyses_data %>%
+  mutate(across(starts_with("reasons_yes"), ~ ifelse(is.na(.), 0, .)))
+
+```
+
+### ~ autonomous / controlled motivation to vote
+
+```{r}
+reasons.models <- c()
+
+for (i in c(1:18)){
+  response_var <- paste0("reasons_yes_", i)
+  formula_str <- paste0(response_var, " ~ vote_motive_autonomous + vote_motive_controlled + (1 | study)")
+  reasons.models[[i]] <- glmer(
+    as.formula(formula_str), 
+    data = reasons_analyses_data, 
+    family = binomial,
+    control = glmerControl(optimizer = "bobyqa")
+  )
+}
+reasons_yes_key$reason_text <- str_replace_all(reasons_yes_key$reason_text, '_', ' ')
+model_labels <- reasons_yes_key$reason_text
+reasons_yes_key
+
+reasons_yes_key$reason_category <- c("civic", "normative", "social", "social", "voice", "voice", "voice", "civic_social", "civic_social", "personal", "civic_social", "impact", "personal", "civic_social", "voice", "impact", "personal", "personal", "other")
+reasons_yes_key <- reasons_yes_key %>% mutate(reason_ast = if_else(reason_category %in% c("civic", "social", "civic_social"), paste0('*', reason_text), reason_text))
+
+#"civic"        1
+#"normative"    7
+#"social"       3
+#"voice"        5
+#"civic_social" 2
+#"personal"     6
+#"impact"       4
+#"other"        8
+
+# updated plotting
+model_data.mv <- lapply(seq_along(reasons.models), function(i) {
+  model <- reasons.models[[i]]
+  label <- model_labels[i]
+  
+  broom.mixed::tidy(model, conf.int = TRUE) %>%
+    filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+    mutate(reason = label) %>%
+    mutate(
+    estimate = exp(estimate),
+    conf.low = exp(conf.low),
+    conf.high = exp(conf.high)
+  )
+
+}) %>% bind_rows()
+
+model_data.mv <- model_data.mv %>%
+  mutate(motivation = case_when(
+    term == "vote_motive_autonomous" ~ "autonomous",
+    term == "vote_motive_controlled" ~ "controlled"
+  )) %>%
+  mutate(significant = case_when(
+    (conf.low > 1 & conf.high > 1) ~ "yes", 
+    (conf.low < 1 & conf.high < 1) ~"yes",
+    .default = "no")) 
+  
+reasons_yes_key$reason <- reasons_yes_key$reason_text
+model_data.mv.categories <- merge(model_data.mv, reasons_yes_key[c('reason', 'reason_category', 'reason_ast')], by = 'reason', all.x = TRUE)
+
+model_data.mv.categories <- transform(model_data.mv.categories, 
+                                      reason_ast = fct_reorder(reason_ast, estimate))
+mv_levels <- levels(model_data.mv.categories$reason_ast)
+
+reasons_mv_plot <- ggplot(model_data.mv.categories, aes(x = reason_ast, y = estimate, color = motivation, alpha = significant)) + 
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 1, color = "darkgray", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  scale_alpha_manual(values=c(0.2, 1), guide = FALSE) + 
+  ylim(0.5, 3.5) +
+  theme_minimal() +
+  labs(
+    x = "",
+    y = "Odds Ratio",
+    color = "Motivation to vote",
+    title = "A. Motivation to vote") + coord_flip()
+reasons_mv_plot
+
+
+```
+
+
+
+### ~ IAF 
+
+```{r}
+
+reasons.models.IAF <- c()
+
+for (i in c(1:18)){
+  response_var <- paste0("reasons_yes_", i)
+  formula_str <- paste0(response_var, " ~ IAF_autonomous + IAF_controlled + (1 | study)")
+  
+  reasons.models.IAF[[i]] <- glmer(
+    as.formula(formula_str), 
+    data = reasons_analyses_data, 
+    family = binomial,
+    control = glmerControl(optimizer = "bobyqa")
+  )
+}
+
+# updated plotting
+model_data.iaf <- lapply(seq_along(reasons.models.IAF), function(i) {
+  model <- reasons.models.IAF[[i]]
+  label <- model_labels[i]
+  
+  broom.mixed::tidy(model, conf.int = TRUE) %>%
+    filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+    mutate(reason = label) %>%
+    mutate(
+    estimate = exp(estimate),
+    conf.low = exp(conf.low),
+    conf.high = exp(conf.high)
+  )
+
+}) %>% bind_rows()
+
+model_data.iaf <- model_data.iaf %>%
+  mutate(motivation = case_when(
+    term == "IAF_autonomous" ~ "autonomous",
+    term == "IAF_controlled" ~ "controlled"
+  )) %>%
+  mutate(significant = case_when(
+    (conf.low > 1 & conf.high > 1) ~ "yes", 
+    (conf.low < 1 & conf.high < 1) ~"yes",
+    .default = "no")) 
+  
+model_data.iaf.categories <- merge(model_data.iaf, reasons_yes_key[c('reason', 'reason_category', 'reason_ast')], by = 'reason', all.x = TRUE)
+
+model_data.iaf.categories$reason_ast <- factor(model_data.iaf.categories$reason_ast, levels = mv_levels)
+
+reasons_IAF_plot <- ggplot(model_data.iaf.categories, aes(x = reason_ast, y = estimate, color = motivation, alpha = significant)) + 
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 1, color = "darkgray", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  scale_alpha_manual(values=c(0.2, 1), guide = FALSE) + 
+  ylim(0.5, 3.5) + 
+  theme_minimal() +
+  labs(
+    x = "",
+    y = "Odds Ratio",
+    color = "IAF subscale score",
+    title = "B. Autonomous functioning") + coord_flip()
+reasons_IAF_plot
+
+
+```
+
+### final plot (Figure 3)
+```{r}
+
+final_plot <- grid.arrange(reasons_mv_plot, reasons_IAF_plot, ncol = 1)
+ggsave("figs/reasons_plots.png", final_plot, width = 8, height = 10)
+
+```
+
+### tables (Tables S10, S11)
+```{r}
+
+model_data.mv.table <- model_data.mv %>%
+  mutate(
+    estimate = round(estimate, 2),
+    conf.int = paste0(round(conf.low, 2), " -- ", round(conf.high, 2)),
+    statistic = round(statistic, 2),
+    p.value = signif(p.value, 3)  # or round(p.value, 3) if preferred
+  ) %>%
+  select(
+    reason,
+    motivation,
+    estimate,
+    conf.int,
+    statistic,
+    p.value
+  )
+
+knitr::kable(model_data.mv.table)
+
+
+model_data.iaf.table <- model_data.iaf %>%
+  mutate(
+    estimate = round(estimate, 2),
+    conf.int = paste0(round(conf.low, 2), " -- ", round(conf.high, 2)),
+    statistic = round(statistic, 2),
+    p.value = signif(p.value, 3)   
+  ) %>%
+  select(
+    reason,
+    motivation,
+    estimate,
+    conf.int,
+    statistic,
+    p.value
+  )
+
+knitr::kable(model_data.iaf.table)
+```
+
+
+# SUPPLEMENTAL MATERIALS 
+
+## Summary of key variables (Figures S1 and S2)
+```{r}
+
+# DVs 
+
+variables_to_include <- c('study', "vote_intention_vote", "CE_attitudes", "CE_checklist")
+
+core_vars_toplot <- data_scored_original[variables_to_include]
+core_vars_toplot$vote_intention_vote <- as.numeric(core_vars_toplot$vote_intention_vote)
+core_vars_toplot <-  pivot_longer(core_vars_toplot, !c(study), names_to = "variable", values_to = "value")
+
+core_vars_toplot_means <- aggregate(value ~ variable + study, data = core_vars_toplot, 
+                           FUN = function(x) c(mean = mean(x), sem = sd(x)/sqrt(length(x))))
+
+core_vars_toplot_means$mean <- core_vars_toplot_means$value[,'mean']
+core_vars_toplot_means$sem <- core_vars_toplot_means$value[,'sem']
+
+
+ggplot(core_vars_toplot_means, aes(x = study, y = mean, group = variable)) +
+  geom_point(alpha = 0.8) +
+  geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), alpha = .9, color = "black") +
+  facet_wrap(~ variable, scales = "free_y") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# all 
+data_scored_original$vote_intention_vote <- as.numeric(data_scored_original$vote_intention_vote)
+
+data_scored_original %>% select(variables_to_include) %>% 
+  select(-study) %>%tbl_summary(missing = "no", 
+                                statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                                type = list(
+                                  vote_intention_vote ~ "continuous",
+                                  CE_attitudes ~ "continuous",
+                                  CE_checklist ~ "continuous"), 
+                                label = list(vote_intention_vote ~ 'Intention to vote', 
+                                             CE_attitudes ~ 'Sense of civic duty', 
+                                             CE_checklist ~ 'Number of civic behaviors')) %>%
+  modify_header(label = '**Variable**')
+
+# by study 
+
+data_scored_original %>% select(variables_to_include) %>% tbl_summary(by = 'study', missing = "no", type = list(
+      vote_intention_vote ~ "continuous",
+      CE_attitudes ~ "continuous",
+      CE_checklist ~ "continuous"), label = list(vote_intention_vote ~ 'Intention to vote', 
+                                                                                         CE_attitudes ~ 'Sense of civic duty', 
+                                                                                         CE_checklist ~ 'Number of civic behaviors')) %>% 
+  modify_header(label = '**Variable**')
+
+
+
+
+
+# IVs 
+
+variables_to_include <- c("vote_motive_controlled", "vote_motive_autonomous", "IAF_controlled", "IAF_autonomous", "study")
+
+core_vars_toplot <- data_scored_original[variables_to_include]
+
+core_vars_toplot <-  pivot_longer(core_vars_toplot, !c(study), names_to = "variable", values_to = "value")
+
+core_vars_toplot_means <- aggregate(value ~ variable + study, data = core_vars_toplot, 
+                           FUN = function(x) c(mean = mean(x), sem = sd(x)/sqrt(length(x))))
+
+core_vars_toplot_means$mean <- core_vars_toplot_means$value[,'mean']
+core_vars_toplot_means$sem <- core_vars_toplot_means$value[,'sem']
+
+
+ggplot(core_vars_toplot_means, aes(x = study, y = mean, group = variable)) +
+  geom_point(alpha = 0.8) +
+  geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), alpha = 0.9, color = "black") +
+  facet_wrap(~ variable, scales = "free_y") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# all 
+data_scored_original %>% select(variables_to_include) %>% 
+  select(-study) %>%
+  tbl_summary(missing = "no", 
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              label = list(vote_motive_autonomous ~ 'Autonomous motivation to vote', 
+                           vote_motive_controlled ~ 'Controlled motivation to vote', 
+                           IAF_autonomous ~ 'Autonomous functioning', 
+                           IAF_controlled ~ 'Controlled functioning')) %>% 
+  modify_header(label = '**Variable**')
+
+# by study 
+
+data_scored_original %>% select(variables_to_include) %>%tbl_summary(by = 'study', missing = "no", 
+                                                                     statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                                                                     label = list(vote_motive_autonomous ~ 'Autonomous motivation to vote', 
+                                                                                         vote_motive_controlled ~ 'Controlled motivation to vote', 
+                                                                                         IAF_autonomous ~ 'Autonomous functioning', 
+                                                                                         IAF_controlled ~ 'Controlled functioning')) %>% 
+  modify_header(label = '**Variable**')
+
+
+```
+
+
+## Exploratory interaction analyses (trait-like x context-specific) {.tabset}
+
+### Models {.tabset}
+
+#### Intention to vote
+
+```{r}
+
+sa1 = lmerTest::lmer(vote_intention_vote ~ IAF_controlled + IAF_autonomous + vote_motive_controlled + vote_motive_autonomous + IAF_controlled:vote_motive_controlled + IAF_autonomous:vote_motive_autonomous + (1 | study), data = data_scaled)
+tab_model(sa1, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+car::vif(sa1)
+
+```
+
+#### Voting behavior
+
+```{r}
+
+sa2 = glmer(behavior_voting ~ IAF_controlled + IAF_autonomous + vote_motive_controlled + vote_motive_autonomous + IAF_controlled:vote_motive_controlled + IAF_autonomous:vote_motive_autonomous + (1 | study),
+        data = filter(data_scaled, grepl("2020_student|2022_student", study)), family = "binomial")
+tab_model(sa2, show.icc = FALSE, show.re.var = FALSE)
+
+car::vif(sa2)
+```
+
+#### Sense of civic duty
+
+```{r}
+
+sa3 = lmerTest::lmer(civic_duty ~ IAF_controlled + IAF_autonomous + vote_motive_controlled + vote_motive_autonomous + IAF_controlled:vote_motive_controlled + IAF_autonomous:vote_motive_autonomous + (1 | study), data = data_scaled)
+tab_model(sa3, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+car::vif(sa3)
+```
+
+#### Civic behavior
+
+```{r}
+
+
+sa4 = lmer(CE_checklist ~ IAF_controlled + IAF_autonomous + vote_motive_controlled + vote_motive_autonomous + IAF_controlled:vote_motive_controlled + IAF_autonomous:vote_motive_autonomous + (1 | study), data = filter(data_scaled, !grepl("2022_general2", study)))
+tab_model(sa4, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+car::vif(sa4)
+
+# w/o 2020 general sample 
+sa4_e1 = lmer(CE_checklist ~ IAF_controlled + IAF_autonomous + vote_motive_controlled + vote_motive_autonomous + IAF_controlled:vote_motive_controlled + IAF_autonomous:vote_motive_autonomous + (1 | study), data = filter(data_scaled, !grepl("2022_general2|2020_general", study)))
+tab_model(sa4_e1, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+car::vif(sa4_e1)
+
+```
+
+
+### Tables (Table S2) 
+
+```{r}
+
+tab_model(sa1, df.method = "satterthwaite", show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('SA1: Voting intentions'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(sa2,  show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('SA2: Voting behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(sa3, df.method = "satterthwaite", show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('SA3: Sense of civic duty'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(sa4, df.method = "satterthwaite", show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('SA4: Range of civic behavior'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(sa4_e1, df.method = "satterthwaite", show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = c('SA4: Range of civic behavior (excluding general 2020)'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+```
+
+
+
+## Leave-one-sample-out 
+
+### Plots (Figures S3, S4)
+```{r}
+
+
+final_plot <- grid.arrange(plot_h1_loo, plot_h2_loo, plot_h3_loo, plot_h4_loo, ncol = 2)
+ggsave("figs/combined_LOO_motives_patchwork.png", final_plot, width = 8, height = 6)
+
+
+final_plot <- grid.arrange(plot_h5_loo, plot_h6_loo, plot_h7_loo, plot_h8_loo, ncol = 2)
+ggsave("figs/combined_LOO_IAF_patchwork.png", final_plot, width = 8, height = 6)
+
+```
+
+### Tables (Tables S5, S6)
+
+```{r}
+
+tab_model(loo.models_h1[1:length(loo.models_h1)-1], df.method = "satterthwaite", show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h1.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(loo.models_h2[1:length(loo.models_h2)-1], show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h2.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+tab_model(loo.models_h3[1:length(loo.models_h3)-1], df.method = "satterthwaite", show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h3.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(loo.models_h4[1:length(loo.models_h4)-1], df.method = "satterthwaite", show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h4.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(loo.models_h5[1:length(loo.models_h5)-1], df.method = "satterthwaite", show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h5.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(loo.models_h6[1:length(loo.models_h6)-1], show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h6.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(loo.models_h7[1:length(loo.models_h7)-1], df.method = "satterthwaite", show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h7.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+tab_model(loo.models_h8[1:length(loo.models_h8)-1], df.method = "satterthwaite", show.icc = FALSE, ci.hyphen = ', ', show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE, dv.labels = loo.models_h8.studies, CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+
+
+```
+
+
+
+## Civic engagement behavior {.tabset}
+
+### Across samples (Figure S5) 
+```{r plotCEbeh}
+
+
+# TABLE S5
+all_behavior_plot <- ggplot(percent_yes, aes(x = reorder(item_named, percent_yes), y = percent_yes)) +
+  geom_bar(stat= "identity", na.rm = TRUE) +
+  geom_text(aes(label = round(percent_yes, 1)), hjust = -0.5) +
+  theme_minimal() + 
+  labs(y = "", x = "", title = "") +
+  expand_limits(y = 105) + 
+  coord_flip() + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+all_behavior_plot
+
+```
+
+
+### Per sample  
+```{r}
+
+# get the overall order so we can compare across samples more easily
+specific_order <- unique(percent_yes$item_named)
+
+perstudy_behavior_plots <- c()
+
+ce_checklist_studies <- c('2020_student', '2020_general', 
+                          '2021_student', '2022_general1', 
+                          '2022_student1', '2022_student2', 
+                          '2024_student1', '2024_student2')
+
+for (studyX in ce_checklist_studies) {
+  
+    study_subset <- subset(CE_checklist_all, study == studyX)
+  
+  # Calculate the percentage of 1s for each item
+percent_yes_spec <- study_subset %>%
+  group_by(item_named) %>%
+  summarise(
+    total = n(),  # Total count excluding NAs
+    ones = sum(value == 1, na.rm = TRUE),  # Count of 1s
+    percent_yes_spec = (ones / total) * 100  # Percentage of 1s
+  ) %>%
+  ungroup() %>% subset(is.na(item_named) == FALSE)
+
+percent_yes_spec$item_named <- factor(percent_yes_spec$item_named, levels = rev(specific_order))
+
+perstudy_behavior_plots[[studyX]] <- ggplot(percent_yes_spec, aes(x = item_named, y = percent_yes_spec)) +
+  geom_bar(stat= "identity", na.rm = TRUE) +
+  geom_text(aes(label = round(percent_yes_spec, 1)), hjust = -0.5) +
+  theme_minimal() + 
+  labs(y = "", x = "", title = studyX) + 
+  coord_flip() + 
+  expand_limits(y = 105) + 
+      theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) 
+
+remove_y_labels <- studyX %in% c('2020_student', '2022_general1', '2022_student2', '2024_student2')
+
+if (remove_y_labels) {
+  perstudy_behavior_plots[[studyX]] <- perstudy_behavior_plots[[studyX]] + 
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank())
+}
+
+}
+
+```
+
+#### plot (Figure S6) 
+```{r}
+
+CE_checklist_all %>%
+  group_by(study, SID) %>%
+  summarise(total_yes = sum(as.numeric(value), na.rm = TRUE), .groups = "drop") %>%
+  group_by(study) %>%
+  summarise(avg_yes_per_person = mean(total_yes), .groups = "drop")
+
+library(patchwork)
+
+plots_ordered <- list(
+  perstudy_behavior_plots[['2020_general']],
+  perstudy_behavior_plots[['2020_student']],
+  perstudy_behavior_plots[['2021_student']],
+  perstudy_behavior_plots[['2022_general1']],
+  perstudy_behavior_plots[['2022_student1']],
+  perstudy_behavior_plots[['2022_student2']],
+  perstudy_behavior_plots[['2024_student1']],
+  perstudy_behavior_plots[['2024_student2']]
+)
+
+final_behavior_plot <- (plots_ordered[[1]] + plots_ordered[[2]]) /
+              (plots_ordered[[3]] + plots_ordered[[4]]) /
+              (plots_ordered[[5]] + plots_ordered[[6]]) /
+              (plots_ordered[[7]] + plots_ordered[[8]]) +
+              plot_layout(guides = 'collect', widths = c(1, 1))
+
+ggsave("figs/all_CE_behavior_plot.png", final_behavior_plot, width = 8.5, height = 12)
+
+``` 
+
+
+
+## Combined registration and vote intentions (Table S8) {.tabset}
+
+### H1 (motivations to vote)
+```{r}
+
+data_scaled$combined_intention <- data_scaled$vote_intention_register + data_scaled$vote_intention_vote
+
+h1_comb = lmerTest::lmer(combined_intention ~ vote_motive_autonomous + vote_motive_controlled + (1 | study), data = data_scaled)
+tab_model(h1_comb, show.icc = FALSE, show.re.var = FALSE, show.df = TRUE, show.stat = TRUE, df.method = "satterthwaite")
+
+```
+
+### H5 (IAF)
+
+```{r}
+h5_comb = lmer(combined_intention ~ IAF_autonomous + IAF_controlled + (1 | study),
+        data = filter(data_scaled, !grepl("2021_student", study)))
+tab_model(h5_comb, show.icc = FALSE, show.re.var = FALSE, show.df = TRUE, show.stat = TRUE, df.method = "satterthwaite")
+
+``` 
+
+## Reasons for voting 
+
+
+## Reasons for NOT voting  
+
+```{r}
+# GET KEY AND TEXT
+reasons_no_key <-  unique(subset(all_reasons_data_withscale, scale_name == 'reasons_no')[c('item', 'reason_text')]) 
+
+reasons_no_key <- reasons_no_key %>%
+  separate(item, into = c("part1", "part2", "reasons_no_number"), sep = "_", convert = TRUE) %>%
+  select(-part1, -part2) %>% 
+  arrange(reasons_no_number)
+
+reasons_no_key$reasons_varname <- paste0('reasons_no_', as.character(reasons_no_key$reasons_no_number))
+
+# these participants all responded to at least some reasons 
+partic_said_no_any <- unique(subset(all_reasons_data_withscale, scale_name == 'reasons_no')$SID)
+
+# merge reasons and data_scaled 
+
+reasons_no_analyses_data <- subset(data_scaled_reasons, SID %in% partic_said_no_any)
+
+reasons_no_analyses_data <- reasons_no_analyses_data %>%
+  mutate(across(starts_with("reasons_no"), ~ ifelse(is.na(.), 0, .)))
+
+```
+
+
+
+### ~ autonomous / controlled motivation to vote 
+
+```{r}
+reasons.no.models <- c()
+
+for (i in c(1:14)){
+  response_var <- paste0("reasons_no_", i)
+  formula_str <- paste0(response_var, " ~ vote_motive_autonomous + vote_motive_controlled + (1 | study)")
+  reasons.no.models[[i]] <- glmer(
+    as.formula(formula_str), 
+    data = reasons_no_analyses_data, 
+    family = binomial,
+    control = glmerControl(optimizer = "bobyqa")
+  )
+}
+
+reasons_no_key$reason_text <- str_replace_all(reasons_no_key$reason_text, '_', ' ')
+model_labels_no <- reasons_no_key$reason_text
+
+
+# updated plotting
+model_data.mv.no <- lapply(seq_along(reasons.no.models), function(i) {
+  model <- reasons.no.models[[i]]
+  label <- model_labels_no[i]
+  
+  broom.mixed::tidy(model, conf.int = TRUE) %>%
+    filter(term %in% c("vote_motive_autonomous", "vote_motive_controlled")) %>%
+    mutate(reason = label) %>%
+    mutate(
+    estimate = exp(estimate),
+    conf.low = exp(conf.low),
+    conf.high = exp(conf.high)
+  )
+
+}) %>% bind_rows()
+
+model_data.mv.no <- model_data.mv.no %>%
+  mutate(motivation = case_when(
+    term == "vote_motive_autonomous" ~ "autonomous",
+    term == "vote_motive_controlled" ~ "controlled"
+  )) %>%
+  mutate(significant = case_when(
+    (conf.low > 1 & conf.high > 1) ~ "yes", 
+    (conf.low < 1 & conf.high < 1) ~"yes",
+    .default = "no")) 
+
+
+model_data.mv.no <- transform(model_data.mv.no, 
+                                      reason = fct_reorder(reason, rev(estimate)))
+mv.no_levels <- levels(model_data.mv.no$reason)
+
+
+reasons_mv_plot_no <- ggplot(model_data.mv.no, aes(x = reason, y = estimate, color = motivation, alpha = significant)) + 
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 1, color = "darkgray", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  scale_alpha_manual(values=c(0.2, 1), guide = FALSE) + 
+  theme_minimal() +
+  ylim(0, 4.1) +
+  labs(
+    x = "",
+    y = "Odds ratio",
+    color = "Motivation to vote",
+    title = "A. Motivation to vote") + coord_flip()
+reasons_mv_plot_no
+
+```
+
+### ~ IAF 
+
+```{r}
+reasons.no.models.IAF <- c()
+
+for (i in c(1:14)){
+  response_var <- paste0("reasons_no_", i)
+  formula_str <- paste0(response_var, " ~ IAF_autonomous + IAF_controlled + (1 | study)")
+  
+  reasons.no.models.IAF[[i]] <- glmer(
+    as.formula(formula_str), 
+    data = reasons_no_analyses_data, 
+    family = binomial,
+    control = glmerControl(optimizer = "bobyqa")
+  )
+}
+
+# updated plotting
+model_data.iaf.no <- lapply(seq_along(reasons.no.models.IAF), function(i) {
+  model <- reasons.no.models.IAF[[i]]
+  label <- model_labels_no[i]
+  
+  broom.mixed::tidy(model, conf.int = TRUE) %>%
+    filter(term %in% c("IAF_autonomous", "IAF_controlled")) %>%
+    mutate(reason = label) %>%
+    mutate(
+    estimate = exp(estimate),
+    conf.low = exp(conf.low),
+    conf.high = exp(conf.high)
+  )
+
+}) %>% bind_rows()
+
+model_data.iaf.no <- model_data.iaf.no %>%
+  mutate(motivation = case_when(
+    term == "IAF_autonomous" ~ "autonomous",
+    term == "IAF_controlled" ~ "controlled"
+  )) %>%
+  mutate(significant = case_when(
+    (conf.low > 1 & conf.high > 1) ~ "yes", 
+    (conf.low < 1 & conf.high < 1) ~"yes",
+    .default = "no")) 
+
+model_data.iaf.no$reason <- factor(model_data.iaf.no$reason, levels = mv.no_levels)
+
+
+reasons_IAF_plot_no <- ggplot(model_data.iaf.no, aes(x = reason, y = estimate, color = motivation, alpha = significant)) + 
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 1, color = "darkgray", linetype = "dashed") +
+  scale_color_manual(values = c("#e64626", "#1985a1")) +
+  scale_alpha_manual(values=c(0.2, 1), guide = FALSE) + 
+  theme_minimal() +
+  ylim(0, 4.1) +
+  labs(
+    x = "",
+    y = "Odds ratio",
+    color = "IAF subscale score",
+    title = "B. Autonomous functioning") + coord_flip()
+
+reasons_IAF_plot_no
+```
+
+### final plot (Figure S7)
+```{r}
+
+final_plot <- grid.arrange(reasons_mv_plot_no, reasons_IAF_plot_no, ncol = 1)
+ggsave("figs/reasons_no_plots.png", final_plot, width = 8, height = 10)
+
+```
+
+### tables (Tables S12, S13)
+```{r}
+
+model_data.mv.no.table <- model_data.mv.no %>%
+  mutate(
+    estimate = round(estimate, 2),
+    conf.int = paste0(round(conf.low, 2), " -- ", round(conf.high, 2)),
+    statistic = round(statistic, 2),
+    p.value = signif(p.value, 3)  # or round(p.value, 3) if preferred
+  ) %>%
+  select(
+    reason,
+    motivation,
+    estimate,
+    conf.int,
+    statistic,
+    p.value
+  )
+
+knitr::kable(model_data.mv.no.table)
+
+
+model_data.iaf.no.table <- model_data.iaf.no %>%
+  mutate(
+    estimate = round(estimate, 2),
+    conf.int = paste0(round(conf.low, 2), " -- ", round(conf.high, 2)),
+    statistic = round(statistic, 2),
+    p.value = signif(p.value, 3)   
+  ) %>%
+  select(
+    reason,
+    motivation,
+    estimate,
+    conf.int,
+    statistic,
+    p.value
+  )
+
+knitr::kable(model_data.iaf.no.table)
+```
+
+
+
+# ADDITIONAL CODE/TABLES/FIGURES NOT INLCUDED IN MANUSCRIPT/SM
+
+## Data quality checks {.tabset}
+
+### Missing data 
+(generated as table of N (%) per variable, per sample. 100% missing corresponds to 'not collected' in Table 3)
+```{r missingdata} 
+# n responses per each question, per study
+
+missing_vals <- data_scored %>%
+  group_by(study) %>%
+  summarise(vote_intention = paste0(as.character(sum(is.na(vote_intention_vote))), ' (', 
+                               as.character(100*round(sum(is.na(vote_intention_vote))/n(), 3)), ')'), 
+            CE_checklist = paste0(as.character(sum(is.na(CE_checklist))), ' (', 
+                               as.character(100*round(sum(is.na(CE_checklist))/n(), 3)), ')'), 
+            civic_duty = paste0(as.character(sum(is.na(CE_attitudes))), ' (', 
+                               as.character(100*round(sum(is.na(CE_attitudes))/n(), 3)), ')'), 
+            vote_motive_autonomous = paste0(as.character(sum(is.na(vote_motive_autonomous))), ' (', 
+                               as.character(100*round(sum(is.na(vote_motive_autonomous))/n(), 3)), ')'), 
+            vote_motive_controlled = paste0(as.character(sum(is.na(vote_motive_controlled))), ' (', 
+                               as.character(100*round(sum(is.na(vote_motive_controlled))/n(), 3)), ')'), 
+            IAF_autonomous = paste0(as.character(sum(is.na(IAF_autonomous))), ' (', 
+                               as.character(100*round(sum(is.na(IAF_autonomous))/n(), 3)), ')'), 
+            IAF_controlled = paste0(as.character(sum(is.na(IAF_controlled))), ' (', 
+                               as.character(100*round(sum(is.na(IAF_controlled))/n(), 3)), ')')) %>%  
+  t() %>% row_to_names(row_number = 1) %>% as.data.frame() 
+          
+
+missing_vals %>% 
+  kable(table.attr = "style = \"color: gray;\"", row.names = TRUE) %>% 
+  kable_styling(full_width = F, position = "center") %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(1, bold = TRUE, border_right = TRUE) %>%
+  #column_spec(2:8, border_right = TRUE) %>% 
+  #column_spec(2, border_left = "2px solid grey") %>%
+  #column_spec(2:8, extra_css = "text-align: center;") %>%
+  kable_styling(font_size = 20) %>% 
+  kable_classic(full_width = F, html_font = "Calibri")
+
+```
+
+
+
+## Distributions {.tabset}
+
+### Intention to vote 
+
+```{r plotvote}
+
+ggplot(data = data_scored, 
+       aes(x = as.numeric(vote_intention_vote), color = study)) +
+  geom_density() + 
+  labs(x = "reported voting intention", y = "density\n") +
+  ggtitle("Reported voting intention by study") + 
+  theme_minimal() 
+
+```
+
+### Civic engagement attitudes 
+
+```{r plotatts} 
+ggplot(data = data_scored, 
+       aes(x = CE_attitudes, color = study)) +
+  geom_density() +  
+  labs(x = "Sense of civic duty", y = "density\n") +
+  ggtitle("Sense of civic duty by study") + 
+  theme_minimal() 
+
+```
+
+### Civic engagement behavior (number of behaviors) 
+
+```{r plotbeh} 
+ggplot(data = data_scored, 
+       aes(x = CE_checklist, color = study)) +
+  geom_density() +  
+  labs(x = "Civic engagement behaviors", y = "density\n") +
+  ggtitle("Civic engagement behaviors by study") + 
+  theme_minimal() 
+
+```
+
+### Self-reported voting behavior (follow-up samples)
+```{r plotfollowup} 
+voting_behavior_data <- subset(data_scaled, !is.na(behavior_voting))
+
+voting_behavior_props <- voting_behavior_data %>% group_by(study) %>% 
+  summarise(n = n(), count_voted = sum(as.numeric(behavior_voting)), 
+            proportion_voted = (sum(as.numeric(behavior_voting))/n()))
+
+ggplot(data = voting_behavior_props, 
+       aes(x = study, y = proportion_voted)) +
+  geom_col(position = "dodge", alpha = 0.6) +  
+  labs(x = "reported voting behavior", y = "proportion\n") +
+  ggtitle("Reported voting behavior by study") + 
+  theme_minimal() 
+
+```
+
+### Reasons for voting - distributions 
+
+#### Across all samples {.tabset}
+
+##### Reasons for voting 
+
+```{r}
+
+
+ggplot(data = subset(all_reasons_data_withscale, scale_name == 'reasons_yes'),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +  coord_flip() + 
+  ggtitle("Reasons participants voted") +
+  theme_minimal() 
+
+```
+
+
+##### Reasons for not voting
+
+```{r}
+
+ggplot(data = subset(all_reasons_data_withscale, scale_name == 'reasons_no'),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +  coord_flip() + 
+  ggtitle("Reasons participants did not vote") +
+  theme_minimal() 
+
+```
+
+#### Per sample {.tabset}
+
+##### 2020 students 
+```{r}
+
+ggplot(data = subset(all_reasons_data_withscale, (study == '2020_student' & scale_name == 'reasons_yes')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +  coord_flip() + 
+  ggtitle("2020 student sample: reasons participants voted") +
+  theme_minimal() 
+
+
+ggplot(data = subset(all_reasons_data_withscale, (study == '2020_student' & scale_name == 'reasons_no')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2020 student sample: reasons participants did not vote") +
+  theme_minimal() 
+
+```
+
+##### 2022 students (#1) 
+```{r}
+ggplot(data = subset(all_reasons_data_withscale, (study == '2022_student1' & scale_name == 'reasons_yes')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2021 student sample: reasons participants voted") +
+  theme_minimal() 
+
+ggplot(data = subset(all_reasons_data_withscale, (study == '2022_student1' & scale_name == 'reasons_no')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2021 student sample: reasons participants did not vote") +
+  theme_minimal() 
+
+```
+
+##### 2022 students (#2)
+```{r}
+ggplot(data = subset(all_reasons_data_withscale, (study == '2022_student2' & scale_name == 'reasons_yes')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2022 student sample: reasons participants voted") +
+  theme_minimal() 
+
+ggplot(data = subset(all_reasons_data_withscale, (study == '2022_student2' & scale_name == 'reasons_no')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2022 student sample: reasons participants did not vote") +
+  theme_minimal() 
+
+```
+
+##### 2024 students (#1)
+
+```{r}
+ggplot(data = subset(all_reasons_data_withscale, (study == '2024_student1' & scale_name == 'reasons_yes')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2022 student sample: reasons participants voted") +
+  theme_minimal() 
+
+ggplot(data = subset(all_reasons_data_withscale, (study == '2024_student1' & scale_name == 'reasons_no')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2022 student sample: reasons participants did not vote") +
+  theme_minimal() 
+
+```
+
+##### 2024 students (#2)
+
+```{r}
+ggplot(data = subset(all_reasons_data_withscale, (study == '2024_student2' & scale_name == 'reasons_yes')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2022 student sample: reasons participants voted") +
+  theme_minimal() 
+
+ggplot(data = subset(all_reasons_data_withscale, (study == '2024_student2' & scale_name == 'reasons_no')),
+       aes(y = value, fill = reason_text, color = reason_text)) +
+  geom_bar(position = "dodge", alpha = 0.6) +    coord_flip() + 
+  ggtitle("2022 student sample: reasons participants did not vote") +
+  theme_minimal() 
+
+```
+
+## Civic behavior: co-occurrance matrices 
+```{r}
+# Plot the heatmap
+ggplot(CE_checklist_co_occurrence_df_long, aes(from, to, fill = weight)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Heatmap of Co-occurrences",
+       x = "Item",
+       y = "Item",
+       fill = "Co-occurrence Count")
+
+```
+
+## Reasons for voting: co-occurrance matrices 
+
+### reasons for voting  
+```{r}
+
+ggplot(yes_reasons_co_occurrence_df_long, aes(from, to, fill = weight)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Heatmap of Co-occurrences",
+       x = "Item",
+       y = "Item",
+       fill = "Co-occurrence Count")
+
+```
+
+### reasons for not voting 
+
+```{r}
+
+ggplot(no_reasons_co_occurrence_df_long, aes(from, to, fill = weight)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Heatmap of Co-occurrences",
+       x = "Item",
+       y = "Item",
+       fill = "Co-occurrence Count")
+
+```
+
+
+
+## Relationships between variables {.tabset}
+
+### Correlations between main variables 
+```{r}
+corrplot(corr_matx$r, method="shade", diag = FALSE, order = 'alphabet', addCoef.col ='black', pch.col = 'black', tl.col = 'black', number.cex = 0.8)
+corrplot(corr_matx$P, method="shade", diag = FALSE, order = 'alphabet', addCoef.col ='black', pch.col = 'black', tl.col = 'black', number.cex = 0.8)
+corr_matx$n
+corr_matx$P
+
+
+
+# per sample 
+#"2020_general"  "2020_student"  "2021_student"  "2022_general1" "2022_general2" #"2022_student1" "2022_student2"
+
+data_scored_original_sampleX <- subset(data_scored, study == "2022_student2")
+keyvars <- data_scored_original_sampleX[c('vote_motive_autonomous', 
+                         'vote_motive_controlled',
+                         'IAF_autonomous', 
+                         'IAF_controlled')]
+colnames(keyvars) <- c('VM-A','VM-C','IAF-A','IAF-C')
+corr_matx <- rcorr(as.matrix(keyvars),type="pearson")
+
+```
+
+
+
+### Pairwise relationships between key variables {.tabset}
+#### Motivation to vote 
+```{r}
+
+ggplot(data = data_scaled, 
+       aes(x = vote_motive_controlled, y = vote_motive_autonomous)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  geom_smooth(color = "black",method = "lm") +
+  theme_minimal() + #coord_cartesian(ylim = c(1,7), xlim = c(1,7)) + 
+  labs(x = "\nControlled motivation", y = "Autonomous motivation\n", title = "Relationship between controlled and autonomous motivation to vote")
+
+```
+
+#### IAF 
+```{r}
+ggplot(data = data_scaled, 
+       aes(x = IAF_controlled, y = IAF_autonomous)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  geom_smooth(color = "black",method = "lm") +
+  theme_minimal() + #coord_cartesian(ylim = c(1,7), xlim = c(1,7)) + 
+  labs(x = "\nControlled functioning", y = "Autonomous functioning\n", title = "IAF subscale relationship: \ncontrolled and autonomous functioning")
+```
+
+#### Autonomous motivation and functioning 
+```{r}
+
+ggplot(data = data_scaled, 
+       aes(x = IAF_autonomous, y = vote_motive_autonomous)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  geom_smooth(color = "black",method = "lm") +
+  theme_minimal() + #coord_cartesian(ylim = c(1,7), xlim = c(1,7)) + 
+  labs(x = "\nAutonomous functioning", y = "Autonomous motivation\n", title = "Relationship between autonomous functioning and autonomous vote motivations")
+
+```
+
+#### Controlled motivation and functioning 
+```{r}
+ggplot(data = data_scaled, 
+       aes(x = IAF_controlled, y = vote_motive_controlled)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  geom_smooth(color = "black",method = "lm") +
+  theme_minimal() + #coord_cartesian(ylim = c(1,7), xlim = c(1,7)) + 
+  labs(x = "\nControlled functioning", y = "Controlled motivation\n", title = "Relationship between controlled functioning and controlled vote motivations")
+```
+
+#### Controlled functioning and autonomous motivation 
+```{r}
+
+ggplot(data = data_scaled, 
+       aes(x = IAF_controlled, y = vote_motive_autonomous)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  geom_smooth(color = "black",method = "lm") +
+  theme_minimal() + #coord_cartesian(ylim = c(1,7), xlim = c(1,7)) + 
+  labs(x = "\nControlled functioning", y = "Autonomous motivation\n", title = "Relationship between controlled functioning and autonomous vote motivations")
+
+
+```
+
+#### Autonomous functioning and controlled motivation 
+```{r}
+
+ggplot(data = data_scaled, 
+       aes(x = IAF_autonomous, y = vote_motive_controlled)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  geom_smooth(color = "black",method = "lm") +
+  theme_minimal() + #coord_cartesian(ylim = c(1,7), xlim = c(1,7)) + 
+  labs(x = "\nAutonomous functioning", y = "Controlled motivation\n", title = "Relationship between autonomous functioning and controlled vote motivations")
+
+```
+
+#### Main relationships 
+
+```{r}
+
+
+# Summarize the data by counting the combinations
+data_summarized <- data_scaled %>%
+  count(vote_motive_controlled, vote_intention_vote, CE_attitudes, behavior_voting)
+
+# Create the heatmap
+ggplot(data_summarized, aes(x = vote_motive_controlled, y = vote_intention_vote, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust colors as desired
+  labs(
+    x = "Vote Motive Controlled",
+    y = "Vote Intention",
+    fill = "Count"
+  ) +
+  theme_minimal()
+
+# Create the heatmap
+ggplot(data_summarized, aes(x = vote_motive_controlled, y = behavior_voting, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust colors as desired
+  labs(
+    x = "Vote Motive Controlled",
+    y = "Vote behavior",
+    fill = "Count"
+  ) +
+  theme_minimal()
+
+
+# Create the heatmap
+ggplot(data_summarized, aes(x = vote_motive_controlled, y = CE_attitudes, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust colors as desired
+  labs(
+    x = "Vote Motive Controlled",
+    y = "Civic duty",
+    fill = "Count"
+  ) +
+  theme_minimal()
+
+# Summarize the data by counting the combinations
+data_summarized <- data_scaled %>%
+  count(vote_motive_autonomous, vote_intention_vote, CE_attitudes, behavior_voting)
+
+# Create the heatmap
+ggplot(data_summarized, aes(x = vote_motive_autonomous, y = vote_intention_vote, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust colors as desired
+  labs(
+    x = "Vote Motive Autonomous",
+    y = "Vote Intention",
+    fill = "Count"
+  ) +
+  theme_minimal()
+
+# Create the heatmap
+ggplot(data_summarized, aes(x = vote_motive_autonomous, y = behavior_voting, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust colors as desired
+  labs(
+    x = "Vote Motive Autonomous",
+    y = "Vote behavior",
+    fill = "Count"
+  ) +
+  theme_minimal()
+
+
+# Create the heatmap
+ggplot(data_summarized, aes(x = vote_motive_autonomous, y = CE_attitudes, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue") +  # Adjust colors as desired
+  labs(
+    x = "Vote Motive Autonomous",
+    y = "Civic duty",
+    fill = "Count"
+  ) +
+  theme_minimal()
+
+
+
+
+### relationships per sample 
+df_long <- data_scaled %>%
+  pivot_longer(
+    cols = c(vote_motive_autonomous, vote_motive_controlled, IAF_autonomous, IAF_controlled),
+    names_to = c(".value", "type"),    # Split column names into 'vote_motive'/'IAF' and 'motive_type'/'IAF_type'
+    names_pattern = "(.*)_(.*)"        # This pattern splits at the underscore
+  )
+
+df_long <- df_long %>%
+  pivot_longer(
+    cols = c(vote_intention_vote, behavior_voting, CE_attitudes, CE_checklist),
+    names_to = "dv_name",
+    values_to = "dv_value"
+  )
+
+ggplot(df_long, aes(x = vote_motive, y = dv_value)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  theme_minimal() +
+  facet_grid(dv_name~type, scales = 'free')
+
+
+ggplot(df_long, aes(x = IAF, y = dv_value)) +
+  stat_smooth(aes(color=study, alpha = 0.2), geom = 'line', alpha = 0.7, method = "lm", se = FALSE, size=0.75) + 
+  theme_minimal() +
+  facet_grid(dv_name~type, scales = 'free')
+
+
+
+```
+
+
+## Exploratory full interaction models for intention to vote
+
+### Models 
+```{r}
+
+
+# EXPLORING INTERACTIONS, THE IMPROVEMENT OF THE MODEL INCLUDING AUTONOMOUS 
+data_scaled_whole <- subset(data_scaled, !(is.na(vote_motive_controlled) | is.na(vote_motive_autonomous) | is.na(IAF_controlled) | is.na(IAF_autonomous)))
+
+exp0 = lmerTest::lmer(vote_intention_vote ~ vote_motive_controlled*IAF_controlled + (1 | study), data = data_scaled_whole)
+tab_model(exp0, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+
+exp0b = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous*IAF_autonomous + (1 | study), data = data_scaled_whole)
+tab_model(exp0b, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+anova(exp0, exp0b)
+
+
+exp1 = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous*IAF_autonomous + vote_motive_controlled*IAF_controlled + (1 | study), data = data_scaled_whole)
+tab_model(exp1, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+anova(exp0b, exp1)
+
+exp2 = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous + vote_motive_controlled + IAF_autonomous + IAF_controlled + vote_motive_autonomous:IAF_autonomous + vote_motive_controlled:IAF_autonomous + vote_motive_autonomous:IAF_controlled + vote_motive_controlled:IAF_controlled + IAF_autonomous:IAF_controlled + vote_motive_autonomous:vote_motive_controlled + (1 | study), data = data_scaled_whole)
+tab_model(exp2, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
+
+anova(exp1, exp2)
+
+```
+
+### Plot (full model)
+```{r}
+ggeffects::ggpredict(exp2, "IAF_autonomous ") %>%
+  data.frame() %>%
+  mutate(scale_type = "IAF") %>%
+  mutate(type = "IAF autonomous") %>%
+  bind_rows(ggeffects::ggpredict(exp2, "IAF_controlled ") %>%
+              data.frame() %>%
+              mutate(scale_type = "IAF") %>%
+              mutate(type = "IAF controlled")) %>%
+              bind_rows(ggeffects::ggpredict(exp2, "vote_motive_autonomous ") %>%
+                          data.frame() %>%
+                          mutate(scale_type = "vote_motive") %>%
+                          mutate(type = "VM autonomous")) %>%
+                          bind_rows(ggeffects::ggpredict(exp2, "vote_motive_controlled ") %>%
+                                      data.frame() %>%
+                                      mutate(scale_type = "vote_motive") %>%
+                                      mutate(type = "VM controlled")) %>%
+                          
+                          ggplot(aes(x, predicted, color = type, fill = type)) +
+                          geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .3, color = NA) +
+                          geom_line(size = 2, alpha = 0.8) +
+                          scale_color_manual(name = "", values = c('#c0ebf7','#ffb5a6','#0f758f','#d34224')) +
+                          scale_fill_manual(name = "", values = c('#c0ebf7','#ffb5a6','#0f758f','#d34224')) +
+                          labs(x = "\n scale score", y = "Voting intention\n(SD)\n", title = "Voting intentions predicted by \nautonomous vs. controlled functioning and motivation and all interactions")  +
+                          plot_aes
+                        
+```
+
+
