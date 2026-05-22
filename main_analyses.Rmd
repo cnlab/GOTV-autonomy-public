@@ -76,6 +76,7 @@ pre { /* Code block - determines code spacing between lines */
 }
 </style>
 ```
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = FALSE, dpi = 150, fig.path = "figs/") 
 
@@ -91,7 +92,7 @@ set.seed(43) #set seed for random number generation
 if (!require(pacman)) {
   install.packages('pacman')
 }
-pacman::p_load(ggplot2, tidyverse, ggnetwork, network, sjPlot, lme4, lmerTest, tm, SnowballC, wordcloud, usmap, knitr, kableExtra, RColorBrewer, corrplot, Hmisc, tidyr, gtsummary, see, stringr, reactable, performance, wesanderson, janitor, ltm, cooccur, visNetwork, reshape2, plotly, dplyr, patchwork,marginaleffects, cowplot, stringr, tm, tidytext, gridExtra, patchwork, apaTables, install = TRUE)
+pacman::p_load(ggplot2, tidyverse, ggnetwork, network, sjPlot, lme4, lmerTest, tm, SnowballC, wordcloud, usmap, knitr, kableExtra, RColorBrewer, corrplot, Hmisc, tidyr, gtsummary, see, stringr, reactable, performance, wesanderson, janitor, ltm, cooccur, visNetwork, reshape2, plotly, dplyr, patchwork,marginaleffects, cowplot, stringr, tm, tidytext, gridExtra, patchwork, apaTables, lavaan, lavaanPlot, semboottools, install = TRUE)
 
 ```
 
@@ -1903,9 +1904,10 @@ tab_model(h6, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df =
           ))
 
 final_plot <- grid.arrange(plot_h5, plot_h6, perstudy_h5b, perstudy_h6b, plot_h7, plot_h8, perstudy_h7_b, perstudy_h8_b, widths = c(1,1), heights = c(2,1.3,2,1.3), ncol = 2)
+ggdraw(final_plot)
+
 ggsave("figs/combined_IAF_patchwork.png", final_plot, width = 12, height = 14)
 
-ggdraw(final_plot)
 
 ```
 
@@ -3331,5 +3333,49 @@ ggeffects::ggpredict(exp2, "IAF_autonomous ") %>%
                           plot_aes
                         
 ```
+
+# SEM ANALYSIS {.tabset}
+## model
+```{r}
+
+data_sem = data_scaled %>%
+  rename("intention" = vote_intention_vote,
+         "behavior" = behavior_voting)
+  
+# specify model
+mediation_model = '
+
+  # direct effects
+  behavior ~ c1*vote_motive_autonomous + c2*vote_motive_controlled
+  
+  # mediator
+  behavior ~ b*intention 
+  intention ~ a1*vote_motive_autonomous + a2*vote_motive_controlled
+
+  # indirect effects (a*b)
+  ab1 := a1*b
+  ab2 := a2*b
+  
+  # indirect effects (a*b)
+  total1 := c1 + (a1*b)
+  total2 := c2 + (a2*b)
+'
+# fit model
+fit_mediation = lavaan::sem(mediation_model, data = data_sem, se = "boot")
+
+# summarize model
+summary(fit_mediation, standardized = TRUE, fit.measures=TRUE, ci = TRUE)
+semboottools::standardizedSolution_boot(fit_mediation) %>%
+  knitr::kable(digits = 3)
+```
+
+## plot
+```{r}
+# plot model
+lavaanPlot::lavaanPlot2(model = fit_mediation, #include = "covs",
+                        stars = c("regress"), stand = TRUE,
+                        coef_labels = TRUE)
+```
+
 
 

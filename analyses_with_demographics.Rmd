@@ -371,6 +371,8 @@ h1_ext = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous + vote_moti
 
 as.table(car::vif(h1_ext, type = 'predictor'))
 
+
+
 ```
 
 ## H2: Voting behavior 
@@ -540,14 +542,207 @@ data_scored_ivs <- data_scaled_demos[c('study', 'SID', 'age', 'vote_motive_auton
 data_scored_ivs_long <-  pivot_longer(data_scored_ivs, !c(study, SID, age), names_to = "scale", values_to = "value")
 data_scored_ivs_long$age <- as.numeric(data_scored_ivs_long$age)
 
+
+plotall_palette <- c("vote_motive_autonomous" = "#0f758f", 
+               "IAF_autonomous" = "#c0ebf7",
+               "vote_motive_controlled" = "#d34224",
+               "IAF_controlled" = "#ffb5a6")
+
+
 ggplot(aes(x = age, y = value, color = scale, fill = scale), data = data_scored_ivs_long) +
   geom_smooth(method = "lm", na.rm = TRUE) + 
-  #geom_jitter(alpha = 0.1, na.rm = TRUE) + 
   theme_minimal() + 
   labs(x = "Age", y = "Level Reported", title = "Expression of state and trait autonomy/control across age") + 
-  scale_colour_manual(name = 'Measure', 
-        values =c('#d34224','#ffb5a6','#0f758f','#c0ebf7'), labels = c('vote_motive_controlled','IAF_controlled', 'vote_motive_autonomous', 'IAF_autonomous')) + 
-  scale_fill_manual(name = 'Measure', 
-        values =c('#d34224','#ffb5a6','#0f758f','#c0ebf7'), labels = c('vote_motive_controlled','IAF_controlled', 'vote_motive_autonomous', 'IAF_autonomous'))
+  scale_colour_manual(values = plotall_palette) + 
+  scale_fill_manual(values = plotall_palette)
+
+
+
+
+```
+
+### models : VM 
+
+```{r}
+
+# center at 18 and set to decades > 18
+data_scaled_demos_clean$age_mod <- (as.numeric(data_scaled_demos_clean$age) - 18)/10
+
+
+## MOTIVATION BY AGE 
+vma_age <- lm(vote_motive_autonomous ~ age_mod, data = data_scaled_demos_clean)
+vmc_age <- lm(vote_motive_controlled ~ age_mod, data = data_scaled_demos_clean)
+
+
+tab_model(vma_age, vmc_age, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, df.method = "satterthwaite", show.ngroups = FALSE, dv.labels = c('VM-A', 'VM-C'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+## VOTING INTENTIONS 
+
+h1_age = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous*age_mod + vote_motive_controlled*age_mod + (1 | study), data = data_scaled_demos_clean)
+
+as.table(car::vif(h1_age, type = 'predictor'))
+
+
+## CIVIC DUTY 
+
+h3_age <- lmer(civic_duty ~ vote_motive_autonomous*age_mod + vote_motive_controlled*age_mod + (1 | study), data = data_scaled_demos_clean)
+
+as.table(car::vif(h3_age, type = 'predictor'))
+
+
+### table 
+
+tab_model(h1_age, h3_age, digits = 3, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, df.method = "satterthwaite", show.ngroups = FALSE, dv.labels = c('H1: VM and voting intentions', 'H3: VM and sense of civic duty'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+```
+
+###models : IAF
+
+```{r}
+
+## IAF BY AGE 
+iafa_age <- lmerTest::lmer(IAF_autonomous ~ age_mod + (1 | study), data = data_scaled_demos_clean)
+
+iafc_age <- lmerTest::lmer(IAF_controlled ~ age_mod + (1 | study), data = data_scaled_demos_clean)
+
+tab_model(iafa_age, iafc_age, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, df.method = "satterthwaite", show.ngroups = FALSE, dv.labels = c('IAF-A', 'IAF-C'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+## INTENTIONS 
+h5_age <- lmer(vote_intention_vote ~ IAF_autonomous*age_mod + IAF_controlled*age_mod + + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2021_student", study)))
+
+as.table(car::vif(h5_age, type = 'predictor'))
+
+
+## CIVIC DUTY 
+h7_age = lmer(civic_duty ~ IAF_autonomous*age_mod + IAF_controlled*age_mod + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2021_student", study)))
+
+as.table(car::vif(h7_age, type = 'predictor'))
+
+
+### table 
+
+tab_model(h5_age, h7_age, digits = 3, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, df.method = "satterthwaite", show.ngroups = FALSE, dv.labels = c('IAF and voting intentions', 'IAF and civic duty'), CSS = list(
+            css.table = 'border-collapse: separate; width: 100%;',
+            css.td = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.td.first = 'border-left: none;',  # No border for the first cell of each model
+            css.th = 'border-left: 2px solid lightgrey; padding: 4px;',
+            css.th.first = 'border-left: none;'   # No border for the first header cell
+          ))
+
+
+```
+
+## model plots -- VM
+
+```{r}
+# set x-axis points for age (centered at 18 and in decades)
+vals = seq(0,7.5,1)
+
+# intentions ~ age x motivation 
+h1_age_pred <- ggeffects::ggpredict(h1_age, c("age_mod[vals]", "vote_motive_autonomous[-1,0,1]")) %>%
+  data.frame() %>% 
+  mutate(type = "autonomous motivation") %>% 
+  bind_rows(ggeffects::ggpredict(h1_age, c("age_mod[vals]", "vote_motive_controlled[-1,0,1]")) %>% 
+              data.frame() %>% 
+              mutate(type = "controlled motivation")) %>% 
+  mutate(x = (x *10) + 18) %>% 
+  mutate(motivation_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
+  mutate(motivation_level = factor(motivation_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
+
+ggplot(h1_age_pred, aes(x = x, y = predicted, color = motivation_level, fill = motivation_level)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) + 
+  theme_minimal() + 
+  labs(x = "Age", y = "Predicted Voting Intention") + 
+  facet_wrap(~type) 
+
+# civic duty ~ age x motivation 
+
+h3_age_pred <- ggeffects::ggpredict(h3_age, c("age_mod[vals]", "vote_motive_autonomous[-1,0,1]")) %>%
+  data.frame() %>% 
+  mutate(type = "autonomous motivation") %>% 
+  bind_rows(ggeffects::ggpredict(h3_age, c("age_mod[vals]", "vote_motive_controlled[-1,0,1]")) %>% 
+              data.frame() %>% 
+              mutate(type = "controlled motivation")) %>% 
+  mutate(x = (x *10) + 18) %>% 
+  mutate(motivation_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
+  mutate(motivation_level = factor(motivation_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
+
+ggplot(h3_age_pred, aes(x = x, y = predicted, color = motivation_level, fill = motivation_level)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) + 
+  theme_minimal() + 
+  labs(x = "Age", y = "Predicted Civic Duty") + 
+  facet_wrap(~type)
+
+
+```
+
+## model plots -- IAF
+
+```{r}
+
+# set x-axis points for age (centered at 18 and in decades)
+vals = seq(0,7.5,1)
+
+# intentions ~ age x IAF
+
+h5_age_pred <- ggeffects::ggpredict(h5_age, c("age_mod[vals]", "IAF_autonomous[-1,0,1]")) %>%
+  data.frame() %>% 
+  mutate(type = "IAF autonomous") %>% 
+  bind_rows(ggeffects::ggpredict(h5_age, c("age_mod[vals]", "IAF_controlled[-1,0,1]")) %>% 
+              data.frame() %>% 
+              mutate(type = "IAF controlled")) %>% 
+  mutate(x = (x *10) + 18) %>% 
+  mutate(trait_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
+  mutate(trait_level = factor(trait_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
+
+
+ggplot(h5_age_pred, aes(x = x, y = predicted, color = trait_level, fill = trait_level)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) + 
+  theme_minimal() + 
+  labs(x = "Age", y = "Predicted Voting Intention") + 
+  facet_wrap(~type)
+
+# civic duty ~ age x IAF
+
+h7_age_pred <- ggeffects::ggpredict(h7_age, c("age_mod[vals]", "IAF_autonomous[-1,0,1]")) %>%
+  data.frame() %>% 
+  mutate(type = "IAF autonomous") %>% 
+  bind_rows(ggeffects::ggpredict(h7_age, c("age_mod[vals]", "IAF_controlled[-1,0,1]")) %>% 
+              data.frame() %>% 
+              mutate(type = "IAF controlled")) %>% 
+  mutate(x = (x *10) + 18) %>% 
+  mutate(trait_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
+  mutate(trait_level = factor(trait_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
+
+ggplot(h7_age_pred, aes(x = x, y = predicted, color = trait_level, fill = trait_level)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) + 
+  theme_minimal() + 
+  labs(x = "Age", y = "Predicted Civic Duty") + 
+  facet_wrap(~type)
+
 
 ```
