@@ -372,7 +372,6 @@ h1_ext = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous + vote_moti
 as.table(car::vif(h1_ext, type = 'predictor'))
 
 
-
 ```
 
 ## H2: Voting behavior 
@@ -542,19 +541,26 @@ data_scored_ivs <- data_scaled_demos[c('study', 'SID', 'age', 'vote_motive_auton
 data_scored_ivs_long <-  pivot_longer(data_scored_ivs, !c(study, SID, age), names_to = "scale", values_to = "value")
 data_scored_ivs_long$age <- as.numeric(data_scored_ivs_long$age)
 
+data_scored_ivs_long$scale <- recode(data_scored_ivs_long$scale, 
+   "vote_motive_autonomous" = "Autonomous motivation to vote",
+   "IAF_autonomous" = "Autonomous functioning",
+   "vote_motive_controlled" = "Controlled motivation to vote",
+   "IAF_controlled" = "Controlled functioning")
 
-plotall_palette <- c("vote_motive_autonomous" = "#0f758f", 
-               "IAF_autonomous" = "#c0ebf7",
-               "vote_motive_controlled" = "#d34224",
-               "IAF_controlled" = "#ffb5a6")
+plotall_palette <- c("Autonomous motivation to vote" = "#0f758f", 
+               "Autonomous functioning" = "#c0ebf7",
+               "Controlled motivation to vote" = "#d34224",
+               "Controlled functioning" = "#ffb5a6")
 
 
 ggplot(aes(x = age, y = value, color = scale, fill = scale), data = data_scored_ivs_long) +
   geom_smooth(method = "lm", na.rm = TRUE) + 
   theme_minimal() + 
-  labs(x = "Age", y = "Level Reported", title = "Expression of state and trait autonomy/control across age") + 
+  labs(x = "Age", y = "Level Reported") +
   scale_colour_manual(values = plotall_palette) + 
-  scale_fill_manual(values = plotall_palette)
+  scale_fill_manual(values = plotall_palette) + 
+  theme(legend.text = element_text(size = 12), legend.title = element_blank()) + 
+  theme(axis.title.x = element_text(size = 14), axis.title.y = element_text(size = 14))
 
 
 
@@ -661,10 +667,10 @@ vals = seq(0,7.5,1)
 # intentions ~ age x motivation 
 h1_age_pred <- ggeffects::ggpredict(h1_age, c("age_mod[vals]", "vote_motive_autonomous[-1,0,1]")) %>%
   data.frame() %>% 
-  mutate(type = "autonomous motivation") %>% 
+  mutate(type = "Autonomous motivation to vote") %>% 
   bind_rows(ggeffects::ggpredict(h1_age, c("age_mod[vals]", "vote_motive_controlled[-1,0,1]")) %>% 
               data.frame() %>% 
-              mutate(type = "controlled motivation")) %>% 
+              mutate(type = "Controlled motivation to vote")) %>% 
   mutate(x = (x *10) + 18) %>% 
   mutate(motivation_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
   mutate(motivation_level = factor(motivation_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
@@ -680,10 +686,10 @@ ggplot(h1_age_pred, aes(x = x, y = predicted, color = motivation_level, fill = m
 
 h3_age_pred <- ggeffects::ggpredict(h3_age, c("age_mod[vals]", "vote_motive_autonomous[-1,0,1]")) %>%
   data.frame() %>% 
-  mutate(type = "autonomous motivation") %>% 
+  mutate(type = "Autonomous motivation to vote") %>% 
   bind_rows(ggeffects::ggpredict(h3_age, c("age_mod[vals]", "vote_motive_controlled[-1,0,1]")) %>% 
               data.frame() %>% 
-              mutate(type = "controlled motivation")) %>% 
+              mutate(type = "Controlled motivation to vote")) %>% 
   mutate(x = (x *10) + 18) %>% 
   mutate(motivation_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
   mutate(motivation_level = factor(motivation_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
@@ -709,10 +715,10 @@ vals = seq(0,7.5,1)
 
 h5_age_pred <- ggeffects::ggpredict(h5_age, c("age_mod[vals]", "IAF_autonomous[-1,0,1]")) %>%
   data.frame() %>% 
-  mutate(type = "IAF autonomous") %>% 
+  mutate(type = "Autonomous functioning") %>% 
   bind_rows(ggeffects::ggpredict(h5_age, c("age_mod[vals]", "IAF_controlled[-1,0,1]")) %>% 
               data.frame() %>% 
-              mutate(type = "IAF controlled")) %>% 
+              mutate(type = "Controlled functioning")) %>%
   mutate(x = (x *10) + 18) %>% 
   mutate(trait_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
   mutate(trait_level = factor(trait_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
@@ -729,10 +735,10 @@ ggplot(h5_age_pred, aes(x = x, y = predicted, color = trait_level, fill = trait_
 
 h7_age_pred <- ggeffects::ggpredict(h7_age, c("age_mod[vals]", "IAF_autonomous[-1,0,1]")) %>%
   data.frame() %>% 
-  mutate(type = "IAF autonomous") %>% 
+  mutate(type = "Autonomous functioning") %>% 
   bind_rows(ggeffects::ggpredict(h7_age, c("age_mod[vals]", "IAF_controlled[-1,0,1]")) %>% 
               data.frame() %>% 
-              mutate(type = "IAF controlled")) %>% 
+              mutate(type = "Controlled functioning")) %>% 
   mutate(x = (x *10) + 18) %>% 
   mutate(trait_level = case_when(group == "-1" ~ "-1 SD", group == "0" ~ "0 (mean)", group == "1" ~ "+1 SD")) %>% 
   mutate(trait_level = factor(trait_level, levels = c("-1 SD", "0 (mean)", "+1 SD")))
@@ -743,6 +749,37 @@ ggplot(h7_age_pred, aes(x = x, y = predicted, color = trait_level, fill = trait_
   theme_minimal() + 
   labs(x = "Age", y = "Predicted Civic Duty") + 
   facet_wrap(~type)
+
+
+```
+
+# Additional exploratory analyses
+
+
+# political party identification interaction 
+```{r}
+
+h1_ext_exp = lmerTest::lmer(vote_intention_vote ~ vote_motive_autonomous*as.numeric(politics_party.y) + vote_motive_controlled*as.numeric(politics_party.y) + (1 | study), data = data_scaled_demos_clean)
+
+tab_model(h1_ext_exp)
+
+
+h2_ext_exp = glmer(behavior_voting ~ vote_motive_autonomous*as.numeric(politics_party.y)  + vote_motive_controlled*as.numeric(politics_party.y)  +  (1 | study),
+        data = filter(data_scaled_demos_clean, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+tab_model(h2_ext_exp)
+
+
+h5_ext_exp <- lmer(vote_intention_vote ~ IAF_autonomous*as.numeric(politics_party.y) + IAF_controlled*as.numeric(politics_party.y) + (1 | study), data = filter(data_scaled_demos_clean, !grepl("2021_student", study)))
+
+tab_model(h5_ext_exp)
+
+
+h6_ext_exp = glmer(behavior_voting ~ IAF_autonomous*as.numeric(politics_party.y) + IAF_controlled*as.numeric(politics_party.y) + (1 | study),
+        data = filter(data_scaled_demos_clean, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+tab_model(h6_ext_exp)
+
 
 
 ```

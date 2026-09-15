@@ -729,7 +729,7 @@ keyvars <- data_scored[c('vote_motive_autonomous',
                          'vote_motive_controlled',
                          'IAF_autonomous', 
                          'IAF_controlled')]
-colnames(keyvars) <- c('VM-A','VM-C','IAF-A','IAF-C')
+colnames(keyvars) <- c('AMV','CMV','AF','CF')
 corr_matx <- rcorr(as.matrix(keyvars),type="pearson")
 
 apa.cor.table(keyvars)
@@ -811,8 +811,8 @@ model_data <- lapply(seq_along(loo.models_h1), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "vote_motive_autonomous" ~ "MV-A",
-    term == "vote_motive_controlled" ~ "MV-C"
+    term == "vote_motive_autonomous" ~ "AMV",
+    term == "vote_motive_controlled" ~ "CMV"
   ))
 
 
@@ -937,8 +937,8 @@ model_data <- lapply(seq_along(loo.models_h2), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "vote_motive_autonomous" ~ "MV-A",
-    term == "vote_motive_controlled" ~ "MV-C"
+    term == "vote_motive_autonomous" ~ "AMV",
+    term == "vote_motive_controlled" ~ "CMV"
   ))
 
 plot_h2_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
@@ -1063,8 +1063,8 @@ model_data <- lapply(seq_along(loo.models_h3), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "vote_motive_autonomous" ~ "MV-A",
-    term == "vote_motive_controlled" ~ "MV-C"
+    term == "vote_motive_autonomous" ~ "AMV",
+    term == "vote_motive_controlled" ~ "CMV"
   ))
 
 plot_h3_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
@@ -1173,8 +1173,8 @@ model_data <- lapply(seq_along(loo.models_h4), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "vote_motive_autonomous" ~ "MV-A",
-    term == "vote_motive_controlled" ~ "MV-C"
+    term == "vote_motive_autonomous" ~ "AMV",
+    term == "vote_motive_controlled" ~ "CMV"
   ))
 
 plot_h4_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
@@ -1372,6 +1372,16 @@ tab_model(h4_expmot, df.method = "satterthwaite", show.icc = FALSE, show.re.var 
 
 ```
 
+# Intentions and behavior, bivariate association 
+
+```{r}
+
+bivariate_model = glmer(behavior_voting ~ vote_intention_vote +  (1 | study),
+        data = filter(data_scaled, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
+
+tab_model(bivariate_model, digits = 3, show.icc = FALSE, show.re.var = FALSE, show.stat = TRUE, show.df = TRUE, show.ngroups = FALSE)
+
+```
 
 #PRIMARY ANALYSES: AUTONOMOUS AND CONTROLLED FUNCTIONING 
 
@@ -1440,8 +1450,8 @@ model_data <- lapply(seq_along(loo.models_h5), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "IAF_autonomous" ~ "IAF-A",
-    term == "IAF_controlled" ~ "IAF-C"
+    term == "IAF_autonomous" ~ "AF",
+    term == "IAF_controlled" ~ "CF"
   ))
 
 plot_h5_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
@@ -1508,6 +1518,7 @@ Higher autonomous functioning will be associated with an increased probability o
 h6 = glmer(behavior_voting ~ IAF_autonomous + IAF_controlled + (1 | study),
         data = filter(data_scaled, grepl("2020_student|2022_student|2024_student", study)), family = "binomial")
 
+
 ```
 
 #### Plot
@@ -1564,8 +1575,8 @@ model_data <- lapply(seq_along(loo.models_h6), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "IAF_autonomous" ~ "IAF-A",
-    term == "IAF_controlled" ~ "IAF-C"
+    term == "IAF_autonomous" ~ "AF",
+    term == "IAF_controlled" ~ "CF"
   ))
 
 plot_h6_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
@@ -1686,8 +1697,8 @@ model_data <- lapply(seq_along(loo.models_h7), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "IAF_autonomous" ~ "IAF-A",
-    term == "IAF_controlled" ~ "IAF-C"
+    term == "IAF_autonomous" ~ "AF",
+    term == "IAF_controlled" ~ "CF"
   ))
 
 plot_h7_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
@@ -1789,8 +1800,8 @@ model_data <- lapply(seq_along(loo.models_h8), function(i) {
 
 model_data <- model_data %>%
   mutate(motivation = case_when(
-    term == "IAF_autonomous" ~ "IAF-A",
-    term == "IAF_controlled" ~ "IAF-C"
+    term == "IAF_autonomous" ~ "AF",
+    term == "IAF_controlled" ~ "CF"
   ))
 
 plot_h8_loo <- ggplot(model_data, aes(x = sample, y = estimate, color = motivation)) +
@@ -2161,6 +2172,11 @@ core_vars_toplot <- data_scored_original[variables_to_include]
 core_vars_toplot$vote_intention_vote <- as.numeric(core_vars_toplot$vote_intention_vote)
 core_vars_toplot <-  pivot_longer(core_vars_toplot, !c(study), names_to = "variable", values_to = "value")
 
+core_vars_toplot$variable <- recode(core_vars_toplot$variable, 
+                                      "vote_intention_vote" = "Voting intention", 
+                                      "CE_attitudes" = "Civic duty", 
+                                      "CE_checklist" = "Civic behaviors")
+
 core_vars_toplot_means <- aggregate(value ~ variable + study, data = core_vars_toplot, 
                            FUN = function(x) c(mean = mean(x), sem = sd(x)/sqrt(length(x))))
 
@@ -2213,6 +2229,14 @@ core_vars_toplot <- data_scored_original[variables_to_include]
 
 core_vars_toplot <-  pivot_longer(core_vars_toplot, !c(study), names_to = "variable", values_to = "value")
 
+
+core_vars_toplot$variable <- recode(core_vars_toplot$variable, 
+                                      "vote_motive_controlled" = "Controlled motivation to vote", 
+                                      "vote_motive_autonomous" = "Autonomous motivation to vote", 
+                                      "IAF_controlled" = "Controlled functioning", 
+                                      "IAF_autonomous" = "Autonomous functioning")
+
+
 core_vars_toplot_means <- aggregate(value ~ variable + study, data = core_vars_toplot, 
                            FUN = function(x) c(mean = mean(x), sem = sd(x)/sqrt(length(x))))
 
@@ -2264,6 +2288,24 @@ sa1 = lmerTest::lmer(vote_intention_vote ~ IAF_controlled + IAF_autonomous + vot
 tab_model(sa1, show.icc = FALSE, show.re.var = FALSE, df.method = "satterthwaite")
 
 car::vif(sa1)
+
+
+```
+##### simple slopes 
+
+```{r}
+
+emmeans::emtrends(sa1, ~ IAF_autonomous, var="vote_motive_autonomous", at = list(IAF_autonomous = c(-1, 0, 1))) %>% 
+  data.frame() %>%
+  mutate(`b [95% CI]` = sprintf("%.2f [%.2f, %.2f]", vote_motive_autonomous.trend, lower.CL, upper.CL)) %>% 
+  select(IAF_autonomous, `b [95% CI]`)  
+
+
+
+emmeans::emtrends(sa1, ~ IAF_controlled, var="vote_motive_controlled", at = list(IAF_controlled = c(-1, 0, 1))) %>% 
+  data.frame() %>%
+  mutate(`b [95% CI]` = sprintf("%.2f [%.2f, %.2f]", vote_motive_controlled.trend, lower.CL, upper.CL)) %>% 
+  select(IAF_controlled, `b [95% CI]`)  
 
 ```
 
@@ -3082,7 +3124,7 @@ keyvars <- data_scored_original_sampleX[c('vote_motive_autonomous',
                          'vote_motive_controlled',
                          'IAF_autonomous', 
                          'IAF_controlled')]
-colnames(keyvars) <- c('VM-A','VM-C','IAF-A','IAF-C')
+colnames(keyvars) <- c('AMV','CMV','AF','CF')
 corr_matx <- rcorr(as.matrix(keyvars),type="pearson")
 
 ```
